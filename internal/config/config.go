@@ -35,13 +35,29 @@ type TekmetricConfig struct {
 	TimeoutSeconds int    `mapstructure:"timeout_seconds"` // HTTP client timeout in seconds
 	MaxRetries     int    `mapstructure:"max_retries"`     // Maximum retry attempts for failed requests
 	MaxBackoffSec  int    `mapstructure:"max_backoff_sec"` // Maximum backoff time in seconds
+	// RequestsPerSecond limits calls to the Tekmetric API from one process.
+	// Divide the account budget by the replica count when running several.
+	RequestsPerSecond int `mapstructure:"requests_per_second"`
 }
+
+// Transport names the way the server talks to a client.
+const (
+	// TransportStdio serves one client over standard input and output. It is
+	// the transport a desktop client launches.
+	TransportStdio = "stdio"
+
+	// TransportHTTP serves many clients over streamable HTTP. Each request
+	// carries everything the server needs, so replicas share no state.
+	TransportHTTP = "http"
+)
 
 // ServerConfig holds MCP server configuration.
 type ServerConfig struct {
-	Name    string `mapstructure:"name"`    // Server name
-	Version string `mapstructure:"version"` // Server version
-	Debug   bool   `mapstructure:"debug"`   // Enable debug logging
+	Name      string `mapstructure:"name"`      // Server name
+	Version   string `mapstructure:"version"`   // Server version
+	Debug     bool   `mapstructure:"debug"`     // Enable debug logging
+	Transport string `mapstructure:"transport"` // stdio or http
+	Addr      string `mapstructure:"addr"`      // Listen address for the http transport
 }
 
 // AnalysisConfig holds configuration for analysis tools.
@@ -72,10 +88,13 @@ func Load() (*Config, error) {
 	v.SetDefault("tekmetric.timeout_seconds", 30)
 	v.SetDefault("tekmetric.max_retries", 3)
 	v.SetDefault("tekmetric.max_backoff_sec", 60)
+	v.SetDefault("tekmetric.requests_per_second", 10)
 	v.SetDefault("tekmetric.default_shop_id", 0)
 	v.SetDefault("server.name", "tekmetric-mcp")
 	v.SetDefault("server.version", "0.1.0")
 	v.SetDefault("server.debug", false)
+	v.SetDefault("server.transport", TransportStdio)
+	v.SetDefault("server.addr", ":8080")
 	v.SetDefault("analysis.max_pages", 50)
 	v.SetDefault("analysis.max_records", 5000)
 	v.SetDefault("analysis.timeout_seconds", 120)
@@ -92,6 +111,8 @@ func Load() (*Config, error) {
 	v.BindEnv("tekmetric.base_url", "TEKMETRIC_BASE_URL")
 	v.BindEnv("tekmetric.default_shop_id", "TEKMETRIC_DEFAULT_SHOP_ID")
 	v.BindEnv("server.debug", "TEKMETRIC_DEBUG")
+	v.BindEnv("server.transport", "TEKMETRIC_TRANSPORT")
+	v.BindEnv("server.addr", "TEKMETRIC_ADDR")
 
 	// Configure config file search
 	v.SetConfigName("config")
@@ -169,6 +190,22 @@ func (c *Config) Validate() error {
 	}
 	if c.Tekmetric.MaxRetries < 0 {
 		return fmt.Errorf("tekmetric.max_retries must be non-negative")
+	}
+
+	if c.Tekmetric.RequestsPerSecond < 1 {
+		return fmt.Errorf("tekmetric.requests_per_second must be at least 1")
+	}
+
+	// The transport decides how the server listens.
+	switch c.Server.Transport {
+	case TransportStdio:
+	case TransportHTTP:
+		if c.Server.Addr == "" {
+			return fmt.Errorf("server.addr is required for the http transport")
+		}
+	default:
+		return fmt.Errorf("invalid server.transport %q: must be %s or %s",
+			c.Server.Transport, TransportStdio, TransportHTTP)
 	}
 
 	// The analysis limits bound how much data one tool call fetches.

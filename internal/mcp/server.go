@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/beetlebugorg/tekmetric-mcp/internal/config"
 	"github.com/beetlebugorg/tekmetric-mcp/internal/mcp/analysis"
@@ -14,6 +16,9 @@ import (
 	"github.com/beetlebugorg/tekmetric-mcp/pkg/tekmetric"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// shutdownTimeout bounds how long the HTTP listener waits for open requests.
+const shutdownTimeout = 15 * time.Second
 
 // Server represents the MCP server for Tekmetric.
 // It wraps an MCP server instance and provides integration with the Tekmetric API.
@@ -72,11 +77,16 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
-// Start starts the MCP server and begins listening for requests.
+// Start serves MCP requests until the context is cancelled.
 //
-// It serves MCP requests over stdio until the context is cancelled or the
-// input closes. The context reaches the tool handlers, so cancelling it stops
-// work that is already running.
+// The stdio transport serves one client over standard input and output. It
+// authenticates first, so a bad credential fails at startup rather than on the
+// first tool call.
+//
+// The http transport serves many clients over streamable HTTP with no session
+// state. Each request carries everything the server needs, so any replica can
+// answer any request. It does not authenticate at startup, because a replica
+// may sit idle and a token would expire before the first call.
 //
 // Parameters:
 //   - ctx: Context for server lifecycle management
@@ -84,6 +94,16 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 // Returns:
 //   - error: Any error during server operation
 func (s *Server) Start(ctx context.Context) error {
+	switch s.config.Server.Transport {
+	case config.TransportHTTP:
+		return s.serveHTTP(ctx)
+	default:
+		return s.serveStdio(ctx)
+	}
+}
+
+// serveStdio serves one client over standard input and output.
+func (s *Server) serveStdio(ctx context.Context) error {
 	// Authenticate before serving, so a bad credential fails at startup rather
 	// than on the first tool call.
 	if err := s.client.Authenticate(ctx); err != nil {
@@ -92,14 +112,57 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.logger.Info("MCP server starting",
 		"name", s.config.Server.Name,
-		"version", s.config.Server.Version)
+		"version", s.config.Server.Version,
+		"transport", config.TransportStdio)
 
 	// Listen takes the application context, so a shutdown signal reaches the
-	// running handlers. ServeStdio installs its own signal handler and its own
-	// context, which would ignore the one this server was given.
+	// running handlers. ServeStdio builds its own context and its own signal
+	// handler, which would ignore the one this server was given.
 	err := server.NewStdioServer(s.server).Listen(ctx, os.Stdin, os.Stdout)
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return err
+}
+
+// serveHTTP serves many clients over streamable HTTP without session state.
+//
+// The client does not authenticate here. The first tool call obtains a token,
+// and the client caches it for later calls.
+func (s *Server) serveHTTP(ctx context.Context) error {
+	httpServer := server.NewStreamableHTTPServer(s.server,
+		// Stateless mode issues no session ID and keeps no per-client state,
+		// so a load balancer may send each request to any replica.
+		server.WithStateLess(true),
+	)
+
+	s.logger.Info("MCP server starting",
+		"name", s.config.Server.Name,
+		"version", s.config.Server.Version,
+		"transport", config.TransportHTTP,
+		"addr", s.config.Server.Addr)
+
+	// Stop the listener when the application context ends.
+	errs := make(chan error, 1)
+	go func() {
+		errs <- httpServer.Start(s.config.Server.Addr)
+	}()
+
+	select {
+	case err := <-errs:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		s.logger.Info("shutting down the HTTP listener")
+
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		defer cancel()
+
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
+	}
 }

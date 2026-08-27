@@ -26,6 +26,9 @@ import (
 // userAgent identifies this client to the API.
 const userAgent = "tekmetric-mcp (https://github.com/beetlebugorg/tekmetric-mcp)"
 
+// defaultRequestsPerSecond limits calls to the API when the config sets none.
+const defaultRequestsPerSecond = 10
+
 // maxResponseBytes caps a response body, so a large reply cannot exhaust memory.
 const maxResponseBytes = 10 * 1024 * 1024
 
@@ -71,6 +74,11 @@ type Client struct {
 // Returns:
 //   - *Client: Configured API client ready for authentication
 func NewClient(cfg *config.TekmetricConfig, logger *slog.Logger) *Client {
+	requestsPerSecond := cfg.RequestsPerSecond
+	if requestsPerSecond < 1 {
+		requestsPerSecond = defaultRequestsPerSecond
+	}
+
 	// Create HTTP transport with secure TLS configuration
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -87,8 +95,10 @@ func NewClient(cfg *config.TekmetricConfig, logger *slog.Logger) *Client {
 			Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
 			Transport: transport,
 		},
-		retryer:       retry.New(cfg.MaxRetries, cfg.MaxBackoffSec),
-		globalLimiter: rate.NewLimiter(rate.Limit(10), 10), // 10 requests/sec with burst of 10
+		retryer: retry.New(cfg.MaxRetries, cfg.MaxBackoffSec),
+		// The limit applies to this process. Running several replicas divides
+		// the account budget, so lower it to match the replica count.
+		globalLimiter: rate.NewLimiter(rate.Limit(requestsPerSecond), requestsPerSecond),
 		logger:        logger,
 	}
 }
