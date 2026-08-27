@@ -63,11 +63,3 @@ type PaginatedResponse[T any] struct {
 	NumberOfElements int  `json:"numberOfElements"`
 	Empty            bool `json:"empty"`
 }
-
-// APIResponse represents a standard API response with data
-type APIResponse[T any] struct {
-	Type    string                 `json:"type"`
-	Message string                 `json:"message"`
-	Data    T                      `json:"data"`
-	Details map[string]interface{} `json:"details"`
-}

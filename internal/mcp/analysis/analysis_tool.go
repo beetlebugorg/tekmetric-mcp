@@ -142,64 +142,26 @@ func FetchAllPages[T any](
 	return allItems, metadata, nil
 }
 
-// FetchUntil fetches pages until a condition is met or maxPages is reached.
-// The condition function receives all items fetched so far and returns true
-// when fetching should stop.
-//
-// This is useful for scenarios like "fetch until we have 50 items" or
-// "fetch until we find a specific record".
-//
-// Example:
-//
-//	items, metadata, err := FetchUntil(ctx, b.logger, fetcher, func(items []RepairOrder) bool {
-//	    return len(items) >= 50 // Stop after 50 items
-//	}, 10)
-func FetchUntil[T any](
-	ctx context.Context,
-	logger *slog.Logger,
-	fetcher func(page int) (*tekmetric.PaginatedResponse[T], error),
-	condition func([]T) bool,
-	maxPages int,
-) ([]T, AggregationMetadata, error) {
-	startTime := time.Now()
-	var allItems []T
-	metadata := AggregationMetadata{}
-
-	for page := 0; page < maxPages; page++ {
-		resp, err := fetcher(page)
-		if err != nil {
-			return nil, metadata, fmt.Errorf("failed to fetch page %d: %w", page, err)
-		}
-
-		allItems = append(allItems, resp.Content...)
-		metadata.PagesTraversed++
-		metadata.RecordsFetched += len(resp.Content)
-
-		logger.Debug("fetched page",
-			"page", page,
-			"items", len(resp.Content),
-			"total_items", len(allItems))
-
-		// Check if condition is met
-		if condition(allItems) {
-			break
-		}
-
-		// Stop if this was the last page
-		if resp.Last || len(resp.Content) == 0 {
-			break
-		}
-	}
-
-	metadata.RecordsProcessed = len(allItems)
-	metadata.ExecutionTimeMs = time.Since(startTime).Milliseconds()
-
-	return allItems, metadata, nil
-}
-
 // GetDefaultShopID returns the default shop ID from config or 0 if not set
 func (b *BaseAnalysisTool) GetDefaultShopID() int {
 	return b.config.Tekmetric.DefaultShopID
+}
+
+// MaxPages returns the page limit for one analysis. It is the safety limit on
+// how much data a single tool call fetches.
+func (b *BaseAnalysisTool) MaxPages() int {
+	return b.config.Analysis.MaxPages
+}
+
+// MaxRecords returns the record limit for one analysis. It bounds the memory a
+// single tool call uses.
+func (b *BaseAnalysisTool) MaxRecords() int {
+	return b.config.Analysis.MaxRecords
+}
+
+// AnalysisTimeout returns the time limit for one analysis.
+func (b *BaseAnalysisTool) AnalysisTimeout() time.Duration {
+	return time.Duration(b.config.Analysis.TimeoutSeconds) * time.Second
 }
 
 // AggregationError represents an error during aggregation with context

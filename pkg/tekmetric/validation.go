@@ -5,43 +5,42 @@ import (
 	"strings"
 )
 
-// validateSortParams validates sort field and direction parameters
-func validateSortParams(sort, sortDirection string, validSorts []string) error {
-	// Validate sort direction
-	if sortDirection != "" {
-		upper := strings.ToUpper(sortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", sortDirection)
-		}
+// normalizeSortDirection checks a sort direction and returns it in upper case.
+// An empty direction is valid and stays empty.
+func normalizeSortDirection(direction string) (string, error) {
+	if direction == "" {
+		return "", nil
 	}
 
-	// Validate sort field
-	if sort != "" {
-		valid := false
-		for _, validSort := range validSorts {
-			if sort == validSort {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("invalid sort field '%s'", sort)
-		}
+	upper := strings.ToUpper(direction)
+	if upper != "ASC" && upper != "DESC" {
+		return "", fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", direction)
+	}
+	return upper, nil
+}
+
+// validateSortFields checks a comma separated list of sort fields.
+func validateSortFields(sort string, valid map[string]bool, supported string) error {
+	if sort == "" {
+		return nil
 	}
 
+	for _, field := range strings.Split(sort, ",") {
+		trimmed := strings.TrimSpace(field)
+		if !valid[trimmed] {
+			return fmt.Errorf("invalid sort field '%s': supported fields are %s", trimmed, supported)
+		}
+	}
 	return nil
 }
 
 // Validate validates the RepairOrderQueryParams
 func (p *RepairOrderQueryParams) Validate() error {
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	// Validate sort field - based on Tekmetric API documentation
 	if p.Sort != "" {
@@ -73,44 +72,28 @@ func (p *CustomerQueryParams) Validate() error {
 		return fmt.Errorf("invalid customerTypeId '%d': must be 1 (Customer) or 2 (Business)", p.CustomerTypeID)
 	}
 
-	// Validate sort - can be comma-separated list
-	if p.Sort != "" {
-		sortFields := strings.Split(p.Sort, ",")
-		validSorts := map[string]bool{
-			"lastName":  true,
-			"firstName": true,
-			"email":     true,
-		}
-		for _, field := range sortFields {
-			trimmed := strings.TrimSpace(field)
-			if !validSorts[trimmed] {
-				return fmt.Errorf("invalid sort field '%s': supported fields are lastName, firstName, email", trimmed)
-			}
-		}
+	// Sort accepts a comma separated list.
+	validSorts := map[string]bool{"lastName": true, "firstName": true, "email": true}
+	if err := validateSortFields(p.Sort, validSorts, "lastName, firstName, email"); err != nil {
+		return err
 	}
 
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	return nil
 }
 
 // Validate validates the VehicleQueryParams
 func (p *VehicleQueryParams) Validate() error {
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	// Note: API documentation doesn't specify allowed sort fields for vehicles
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -120,14 +103,11 @@ func (p *VehicleQueryParams) Validate() error {
 
 // Validate validates the AppointmentQueryParams
 func (p *AppointmentQueryParams) Validate() error {
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	// Note: API documentation doesn't specify allowed sort fields for appointments
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -137,14 +117,11 @@ func (p *AppointmentQueryParams) Validate() error {
 
 // Validate validates the JobQueryParams
 func (p *JobQueryParams) Validate() error {
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	// Validate sort field - based on Tekmetric API documentation
 	if p.Sort != "" && p.Sort != "authorizedDate" {
@@ -163,14 +140,11 @@ func (p *JobQueryParams) Validate() error {
 
 // Validate validates the EmployeeQueryParams
 func (p *EmployeeQueryParams) Validate() error {
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
 	// Note: API documentation doesn't specify allowed sort fields for employees
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -193,30 +167,16 @@ func (p *InventoryQueryParams) Validate() error {
 		return fmt.Errorf("invalid partTypeId '%d': must be 1 (Part), 2 (Tire), or 5 (Battery)", p.PartTypeID)
 	}
 
-	// Validate sort direction
-	if p.SortDirection != "" {
-		upper := strings.ToUpper(p.SortDirection)
-		if upper != "ASC" && upper != "DESC" {
-			return fmt.Errorf("invalid sort direction '%s': must be ASC or DESC", p.SortDirection)
-		}
-		p.SortDirection = upper // Normalize
+	direction, err := normalizeSortDirection(p.SortDirection)
+	if err != nil {
+		return err
 	}
+	p.SortDirection = direction
 
-	// Validate sort fields - can be comma-separated
-	if p.Sort != "" {
-		sortFields := strings.Split(p.Sort, ",")
-		validSorts := map[string]bool{
-			"id":         true,
-			"name":       true,
-			"brand":      true,
-			"partNumber": true,
-		}
-		for _, field := range sortFields {
-			trimmed := strings.TrimSpace(field)
-			if !validSorts[trimmed] {
-				return fmt.Errorf("invalid sort field '%s': supported fields are id, name, brand, partNumber", trimmed)
-			}
-		}
+	// Sort accepts a comma separated list.
+	validSorts := map[string]bool{"id": true, "name": true, "brand": true, "partNumber": true}
+	if err := validateSortFields(p.Sort, validSorts, "id, name, brand, partNumber"); err != nil {
+		return err
 	}
 
 	return nil

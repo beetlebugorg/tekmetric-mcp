@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/beetlebugorg/tekmetric-mcp/internal/config"
 	"github.com/beetlebugorg/tekmetric-mcp/pkg/tekmetric"
@@ -148,15 +149,151 @@ func TestAggregationError(t *testing.T) {
 	}
 }
 
-// newVehicleTool wires the vehicle analysis tool to the mock API.
+// newVehicleTool wires the vehicle analysis tool to the mock API with the
+// default limits.
 func newVehicleTool(t *testing.T, api *tekmetrictest.API) *VehicleServiceAnalysis {
 	t.Helper()
+	return newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120})
+}
 
-	cfg := &config.Config{
-		Tekmetric: *api.Config(),
-		Analysis:  config.AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120},
-	}
+// newVehicleToolWithLimits wires the tool with the limits a test chooses.
+func newVehicleToolWithLimits(t *testing.T, api *tekmetrictest.API, limits config.AnalysisConfig) *VehicleServiceAnalysis {
+	t.Helper()
+
+	cfg := &config.Config{Tekmetric: *api.Config(), Analysis: limits}
 	return NewVehicleServiceAnalysis(api.AuthedClient(t), cfg, tekmetrictest.Logger())
+}
+
+// seedRepairOrders fills the mock with a vehicle and count repair orders.
+func seedRepairOrders(api *tekmetrictest.API, count int) {
+	api.Vehicles = []tekmetric.Vehicle{{ID: 20, Year: 2019, Make: "Ford", Model: "F-150"}}
+	for i := 1; i <= count; i++ {
+		api.RepairOrders = append(api.RepairOrders, tekmetric.RepairOrder{
+			ID: i, ShopID: 1, VehicleID: 20, RepairOrderNumber: 1000 + i,
+		})
+	}
+}
+
+func TestBaseAnalysisToolReadsTheConfigLimits(t *testing.T) {
+	api := tekmetrictest.New(t)
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 7, MaxRecords: 300, TimeoutSeconds: 45})
+
+	if got := tool.MaxPages(); got != 7 {
+		t.Errorf("MaxPages() = %d, want 7", got)
+	}
+	if got := tool.MaxRecords(); got != 300 {
+		t.Errorf("MaxRecords() = %d, want 300", got)
+	}
+	if got := tool.AnalysisTimeout(); got != 45*time.Second {
+		t.Errorf("AnalysisTimeout() = %v, want 45s", got)
+	}
+}
+
+// TestConfiguredPageCeilingIsEnforced confirms analysis.max_pages bounds the
+// fetch. The tool must not read the whole history when the config says stop.
+func TestConfiguredPageCeilingIsEnforced(t *testing.T) {
+	api := tekmetrictest.New(t)
+	seedRepairOrders(api, 500)
+
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 2, MaxRecords: 5000, TimeoutSeconds: 120})
+
+	result, err := tool.Execute(t.Context(), map[string]interface{}{"vehicle_id": float64(20)})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// The tool requests 100 records per page, so two pages hold 200 of the 500.
+	if result.Metadata.PagesTraversed != 2 {
+		t.Errorf("PagesTraversed = %d, want 2", result.Metadata.PagesTraversed)
+	}
+	if result.Metadata.RecordsFetched != 200 {
+		t.Errorf("RecordsFetched = %d, want 200", result.Metadata.RecordsFetched)
+	}
+}
+
+// TestCallerMayAskForFewerPages confirms a smaller max_pages argument wins.
+func TestCallerMayAskForFewerPages(t *testing.T) {
+	api := tekmetrictest.New(t)
+	seedRepairOrders(api, 500)
+
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 20, MaxRecords: 5000, TimeoutSeconds: 120})
+
+	result, err := tool.Execute(t.Context(), map[string]interface{}{
+		"vehicle_id": float64(20),
+		"max_pages":  float64(3),
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Metadata.PagesTraversed != 3 {
+		t.Errorf("PagesTraversed = %d, want 3", result.Metadata.PagesTraversed)
+	}
+}
+
+// TestCallerCannotRaiseThePageCeiling confirms the config is the ceiling, not a
+// default the caller can exceed.
+func TestCallerCannotRaiseThePageCeiling(t *testing.T) {
+	api := tekmetrictest.New(t)
+	seedRepairOrders(api, 500)
+
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 2, MaxRecords: 5000, TimeoutSeconds: 120})
+
+	result, err := tool.Execute(t.Context(), map[string]interface{}{
+		"vehicle_id": float64(20),
+		"max_pages":  float64(1000),
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Metadata.PagesTraversed != 2 {
+		t.Errorf("PagesTraversed = %d, want 2", result.Metadata.PagesTraversed)
+	}
+}
+
+func TestPageCeilingIsAtLeastOne(t *testing.T) {
+	api := tekmetrictest.New(t)
+	seedRepairOrders(api, 500)
+
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 5, MaxRecords: 5000, TimeoutSeconds: 120})
+
+	result, err := tool.Execute(t.Context(), map[string]interface{}{
+		"vehicle_id": float64(20),
+		"max_pages":  float64(0),
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Metadata.PagesTraversed != 1 {
+		t.Errorf("PagesTraversed = %d, want 1", result.Metadata.PagesTraversed)
+	}
+}
+
+// TestConfiguredRecordLimitTruncates confirms analysis.max_records bounds the
+// result the tool processes.
+func TestConfiguredRecordLimitTruncates(t *testing.T) {
+	api := tekmetrictest.New(t)
+	seedRepairOrders(api, 250)
+
+	tool := newVehicleToolWithLimits(t, api,
+		config.AnalysisConfig{MaxPages: 50, MaxRecords: 40, TimeoutSeconds: 120})
+
+	result, err := tool.Execute(t.Context(), map[string]interface{}{"vehicle_id": float64(20)})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if result.Metadata.RecordsProcessed != 40 {
+		t.Errorf("RecordsProcessed = %d, want 40", result.Metadata.RecordsProcessed)
+	}
+	if result.Metadata.RecordsFetched != 250 {
+		t.Errorf("RecordsFetched = %d, want 250", result.Metadata.RecordsFetched)
+	}
 }
 
 func TestVehicleServiceAnalysisDescribesItself(t *testing.T) {
