@@ -26,6 +26,45 @@ jobs:
       - name: Run tests
         run: go test -v ./...
 
+      # GoReleaser signs the macOS builds when the certificate is present, and
+      # skips signing when it is absent. Set the variables only when the
+      # secrets hold a value, so an empty secret does not enable a step that
+      # would then fail.
+      - name: Enable macOS signing
+        env:
+          SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+        run: |
+          if [ -z "$SIGN_P12" ]; then
+            echo "No macOS certificate. This release will not be signed."
+            exit 0
+          fi
+
+          missing=""
+          for name in SIGN_PASSWORD NOTARY_ISSUER_ID NOTARY_KEY_ID NOTARY_KEY; do
+            eval "value=\$$name"
+            [ -n "$value" ] || missing="$missing MACOS_$name"
+          done
+          if [ -n "$missing" ]; then
+            echo "A macOS certificate is set, but these secrets are missing:$missing"
+            exit 1
+          fi
+
+          # A pasted credential may carry line breaks, which GITHUB_ENV reads
+          # as the end of the value.
+          {
+            printf 'MACOS_SIGN_P12=%s\n' "$(printf '%s' "$SIGN_P12" | tr -d '\r\n')"
+            printf 'MACOS_SIGN_PASSWORD=%s\n' "$SIGN_PASSWORD"
+            printf 'MACOS_NOTARY_ISSUER_ID=%s\n' "$NOTARY_ISSUER_ID"
+            printf 'MACOS_NOTARY_KEY_ID=%s\n' "$NOTARY_KEY_ID"
+            printf 'MACOS_NOTARY_KEY=%s\n' "$(printf '%s' "$NOTARY_KEY" | tr -d '\r\n')"
+          } >> "$GITHUB_ENV"
+
+          echo "macOS signing is on."
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

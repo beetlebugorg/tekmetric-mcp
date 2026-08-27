@@ -48,6 +48,31 @@ archives:
       - LICENSE
 
 
+# Sign and notarize the macOS builds.
+#
+# Gatekeeper blocks an unsigned binary that carries the quarantine flag, and a
+# binary extracted from a downloaded .mcpb carries it. Signing with a Developer
+# ID and notarizing clears that.
+#
+# GoReleaser signs with quill rather than Apple tooling, so this runs on the
+# Linux release runner. The step turns itself off when the certificate is
+# absent, which keeps a fork building.
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - tekmetric-mcp
+        - tekmetric-mcp-universal
+      sign:
+        certificate: "{{.Env.MACOS_SIGN_P12}}"
+        password: "{{.Env.MACOS_SIGN_PASSWORD}}"
+      notarize:
+        issuer_id: "{{.Env.MACOS_NOTARY_ISSUER_ID}}"
+        key_id: "{{.Env.MACOS_NOTARY_KEY_ID}}"
+        key: "{{.Env.MACOS_NOTARY_KEY}}"
+        wait: true
+        timeout: 20m
+
 checksum:
   name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
   algorithm: sha256
