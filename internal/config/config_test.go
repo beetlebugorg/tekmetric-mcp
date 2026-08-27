@@ -1,0 +1,138 @@
+package config
+
+import (
+	"strings"
+	"testing"
+)
+
+// Tests use the reserved example.com domain. A test must never name a host
+// that resolves to a real service.
+//
+// validConfig returns a Config that passes Validate. Each test changes one
+// field so a failure names the field under test.
+func validConfig() *Config {
+	return &Config{
+		Tekmetric: TekmetricConfig{
+			BaseURL:        "https://api.example.com",
+			ClientID:       "id",
+			ClientSecret:   "secret",
+			TimeoutSeconds: 30,
+			MaxRetries:     3,
+			MaxBackoffSec:  60,
+		},
+		Server: ServerConfig{Name: "tekmetric-mcp", Version: "0.1.0"},
+	}
+}
+
+func TestValidateAcceptsAValidConfig(t *testing.T) {
+	if err := validConfig().Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateRequiredFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantMsg string
+	}{
+		{
+			name:    "missing client id",
+			mutate:  func(c *Config) { c.Tekmetric.ClientID = "" },
+			wantMsg: "client_id",
+		},
+		{
+			name:    "missing client secret",
+			mutate:  func(c *Config) { c.Tekmetric.ClientSecret = "" },
+			wantMsg: "client_secret",
+		},
+		{
+			name:    "missing base url",
+			mutate:  func(c *Config) { c.Tekmetric.BaseURL = "" },
+			wantMsg: "base_url",
+		},
+		{
+			name:    "zero timeout",
+			mutate:  func(c *Config) { c.Tekmetric.TimeoutSeconds = 0 },
+			wantMsg: "timeout_seconds",
+		},
+		{
+			name:    "negative timeout",
+			mutate:  func(c *Config) { c.Tekmetric.TimeoutSeconds = -1 },
+			wantMsg: "timeout_seconds",
+		},
+		{
+			name:    "negative max retries",
+			mutate:  func(c *Config) { c.Tekmetric.MaxRetries = -1 },
+			wantMsg: "max_retries",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("Validate() returned nil, want an error")
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want it to mention %q", err, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestValidateBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{"https production", "https://api.example.com", false},
+		{"https sandbox", "https://sandbox.example.com", false},
+		{"http sandbox is allowed", "http://sandbox.example.com", false},
+		{"http localhost is allowed", "http://localhost:8080", false},
+		{"http loopback address is allowed", "http://127.0.0.1:8080", false},
+		{"http production is rejected", "http://api.example.com", true},
+		{"no scheme is rejected", "api.example.com", true},
+		{"scheme without host is rejected", "https://", true},
+		{"malformed url is rejected", "://api.example.com", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Tekmetric.BaseURL = tt.baseURL
+
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Errorf("Validate() with %q returned nil, want an error", tt.baseURL)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("Validate() with %q error = %v, want nil", tt.baseURL, err)
+			}
+		})
+	}
+}
+
+// TestValidateSandboxMatchIsASubstring records that the sandbox exemption
+// matches anywhere in the host, so a hostile host name reaches the exemption.
+func TestValidateSandboxMatchIsASubstring(t *testing.T) {
+	cfg := validConfig()
+	cfg.Tekmetric.BaseURL = "http://sandbox.not-the-vendor.example"
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v; the host check is now stricter, so update this test", err)
+	}
+}
+
+func TestValidateAllowsZeroMaxRetries(t *testing.T) {
+	cfg := validConfig()
+	cfg.Tekmetric.MaxRetries = 0
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
