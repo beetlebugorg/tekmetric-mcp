@@ -155,44 +155,55 @@ release: build-all ## Create a release (requires VERSION env var)
 	@ls -lh $(DIST_DIR)
 
 # Desktop Extension targets
-extension: build-all ## Build Desktop Extension (.mcpb file)
+extension: ## Build Desktop Extension (.mcpb file)
+	@command -v goreleaser >/dev/null 2>&1 || { \
+		echo "ERROR: goreleaser is required to build the macOS universal binary."; \
+		echo "Install it from https://goreleaser.com, then run make extension again."; \
+		exit 1; \
+	}
+	goreleaser build --snapshot --clean
 	@$(MAKE) package-extension
 
 package-extension: ## Package existing binaries into .mcpb (for CI after GoReleaser)
 	@echo "Packaging Desktop Extension..."
 	@mkdir -p $(DIST_DIR)/extension
 	@cp manifest.json $(DIST_DIR)/extension/
-	@# Copy binaries from GoReleaser output structure or flat dist/
-	@if [ -d "$(DIST_DIR)/tekmetric-mcp_darwin_amd64_v1" ]; then \
-		echo "Using GoReleaser output structure..."; \
-		cp $(DIST_DIR)/tekmetric-mcp_darwin_amd64_v1/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-darwin-amd64; \
-		cp $(DIST_DIR)/tekmetric-mcp_darwin_arm64_v8.0/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-darwin-arm64; \
+	@# The archive carries only the binaries manifest.json names. The macOS
+	@# universal binary already holds both architectures, so shipping the two
+	@# single architecture builds beside it would repeat 26MB.
+	@if [ -d "$(DIST_DIR)/tekmetric-mcp-universal_darwin_all" ]; then \
+		echo "Using GoReleaser output..."; \
+		cp $(DIST_DIR)/tekmetric-mcp-universal_darwin_all/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-darwin-universal; \
 		cp $(DIST_DIR)/tekmetric-mcp_linux_amd64_v1/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-amd64; \
-		cp $(DIST_DIR)/tekmetric-mcp_linux_arm64_v8.0/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-arm64; \
-		cp $(DIST_DIR)/tekmetric-mcp_windows_amd64_v1/tekmetric-mcp.exe $(DIST_DIR)/extension/tekmetric-mcp-windows-amd64.exe 2>/dev/null || true; \
-		if command -v lipo >/dev/null 2>&1; then \
-			echo "Creating macOS universal binary..."; \
-			lipo -create -output $(DIST_DIR)/extension/tekmetric-mcp-darwin-universal \
-				$(DIST_DIR)/extension/tekmetric-mcp-darwin-amd64 \
-				$(DIST_DIR)/extension/tekmetric-mcp-darwin-arm64; \
-		fi; \
+		cp $(DIST_DIR)/tekmetric-mcp_windows_amd64_v1/tekmetric-mcp.exe $(DIST_DIR)/extension/tekmetric-mcp-windows-amd64.exe; \
 	else \
-		echo "Using flat dist/ structure..."; \
-		cp $(DIST_DIR)/tekmetric-mcp-darwin-amd64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
-		cp $(DIST_DIR)/tekmetric-mcp-darwin-arm64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
-		cp $(DIST_DIR)/tekmetric-mcp-linux-amd64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
-		cp $(DIST_DIR)/tekmetric-mcp-linux-arm64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
-		cp $(DIST_DIR)/tekmetric-mcp-windows-amd64.exe $(DIST_DIR)/extension/ 2>/dev/null || true; \
-		if [ -f $(DIST_DIR)/tekmetric-mcp-darwin-universal ]; then \
-			cp $(DIST_DIR)/tekmetric-mcp-darwin-universal $(DIST_DIR)/extension/; \
-		elif command -v lipo >/dev/null 2>&1 && [ -f $(DIST_DIR)/extension/tekmetric-mcp-darwin-amd64 ] && [ -f $(DIST_DIR)/extension/tekmetric-mcp-darwin-arm64 ]; then \
-			echo "Creating macOS universal binary..."; \
-			lipo -create -output $(DIST_DIR)/extension/tekmetric-mcp-darwin-universal \
-				$(DIST_DIR)/extension/tekmetric-mcp-darwin-amd64 \
-				$(DIST_DIR)/extension/tekmetric-mcp-darwin-arm64; \
-		fi; \
+		echo "Using flat dist/ output..."; \
+		cp $(DIST_DIR)/$(BINARY_NAME)-darwin-universal $(DIST_DIR)/extension/ 2>/dev/null || true; \
+		cp $(DIST_DIR)/$(BINARY_NAME)-linux-amd64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
+		cp $(DIST_DIR)/$(BINARY_NAME)-windows-amd64.exe $(DIST_DIR)/extension/ 2>/dev/null || true; \
 	fi
 	@if [ -f icon.png ]; then cp icon.png $(DIST_DIR)/extension/; fi
+	@echo "Checking the binaries manifest.json names..."
+	@missing=""; \
+	for binary in $$(grep -o '$${__dirname}/[A-Za-z0-9._-]*' manifest.json | sed 's|$${__dirname}/||' | sort -u); do \
+		if [ ! -f "$(DIST_DIR)/extension/$$binary" ]; then \
+			missing="$$missing $$binary"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo ""; \
+		echo "ERROR: manifest.json names binaries the build did not produce:"; \
+		for binary in $$missing; do echo "  - $$binary"; done; \
+		echo ""; \
+		echo "Claude Desktop runs these by name. A missing one leaves an"; \
+		echo "extension that cannot start on that platform."; \
+		echo ""; \
+		echo "The macOS universal binary comes from GoReleaser. Build it with:"; \
+		echo "  goreleaser build --snapshot --clean && make package-extension"; \
+		echo ""; \
+		rm -rf $(DIST_DIR)/extension; \
+		exit 1; \
+	fi
 	@cd $(DIST_DIR)/extension && zip -r -X ../tekmetric-mcp.mcpb .
 	@rm -rf $(DIST_DIR)/extension
 	@echo "Desktop Extension created: $(DIST_DIR)/tekmetric-mcp.mcpb"
