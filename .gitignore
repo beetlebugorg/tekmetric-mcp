@@ -42,3 +42,6 @@ bin/
 
 # Logs
 *.log
+
+# Working notes and specs (local only)
+specs/
