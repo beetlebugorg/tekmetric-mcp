@@ -106,7 +106,7 @@ Get a complete timeline with:
 
 #### Desktop Extension (Easiest)
 
-1. Download `tekmetric-mcp.mcpb` from [releases](https://github.com/beetlebugorg/tekmetric-mcp/releases)
+1. Download `tekmetric-mcp-<version>.mcpb` from [releases](https://github.com/beetlebugorg/tekmetric-mcp/releases)
 2. Open the `.mcpb` file with Claude Desktop
 3. Configure your API credentials
 4. Start asking questions!
