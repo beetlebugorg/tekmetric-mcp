@@ -95,10 +95,18 @@ func (r *Registry) handleAppointments(arguments map[string]interface{}) (*mcp.Ca
 	if vehicleID, ok := parseFloatArg(arguments, "vehicle_id"); ok {
 		params.VehicleID = vehicleID
 	}
-	if start, ok := parseDateArg(arguments, "start_date"); ok {
+	start, errResult := parseDateArg(arguments, "start_date")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if start != "" {
 		params.Start = start
 	}
-	if end, ok := parseDateArg(arguments, "end_date"); ok {
+	end, errResult := parseDateArg(arguments, "end_date")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if end != "" {
 		params.End = end
 	}
 	if sort, ok := parseStringArg(arguments, "sort"); ok {

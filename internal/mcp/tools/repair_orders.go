@@ -82,9 +82,7 @@ func (r *Registry) handleRepairOrders(arguments map[string]interface{}) (*mcp.Ca
 
 	// Cap at 25 total results to prevent context overload
 	maxResults := 25
-	if limit > maxResults {
-		limit = maxResults
-	}
+	limit = clampLimit(limit, maxResults)
 
 	// Calculate pages needed (API max is 100 per page)
 	pageSize := 100
@@ -104,10 +102,18 @@ func (r *Registry) handleRepairOrders(arguments map[string]interface{}) (*mcp.Ca
 		params.Search = search
 	}
 
-	if startDate, ok := parseDateArg(arguments, "start_date"); ok {
+	startDate, errResult := parseDateArg(arguments, "start_date")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if startDate != "" {
 		params.Start = startDate
 	}
-	if endDate, ok := parseDateArg(arguments, "end_date"); ok {
+	endDate, errResult := parseDateArg(arguments, "end_date")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if endDate != "" {
 		params.End = endDate
 	}
 	if status, ok := parseStringArg(arguments, "status"); ok {
