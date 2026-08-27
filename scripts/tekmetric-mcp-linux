@@ -1,0 +1,29 @@
+#!/bin/sh
+# Launcher for the Linux builds.
+#
+# Claude Desktop reads one command per platform from manifest.json, and the
+# manifest format has no key for the CPU architecture. This script sits at that
+# command and runs the build that matches the machine.
+set -eu
+
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+case $(uname -m) in
+	aarch64 | arm64)
+		binary="$dir/tekmetric-mcp-linux-arm64"
+		;;
+	x86_64 | amd64)
+		binary="$dir/tekmetric-mcp-linux-amd64"
+		;;
+	*)
+		echo "tekmetric-mcp: no Linux build for $(uname -m)" >&2
+		exit 1
+		;;
+esac
+
+if [ ! -x "$binary" ]; then
+	echo "tekmetric-mcp: $binary is missing or is not executable" >&2
+	exit 1
+fi
+
+exec "$binary" "$@"
