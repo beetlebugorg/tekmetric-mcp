@@ -61,7 +61,7 @@ type CustomerQueryParams struct {
 
 // GetCustomers returns a paginated list of customers
 func (c *Client) GetCustomers(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[Customer], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	path := fmt.Sprintf("/api/v1/customers?shop=%d&page=%d&size=%d", shopID, page, size)
@@ -74,7 +74,7 @@ func (c *Client) GetCustomers(ctx context.Context, shopID int, page int, size in
 
 // SearchCustomers searches customers using the API's native search
 func (c *Client) SearchCustomers(ctx context.Context, shopID int, query string, page int, size int) (*PaginatedResponse[Customer], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	query = url.QueryEscape(query)
@@ -98,7 +98,7 @@ func (c *Client) GetCustomer(ctx context.Context, id int) (*Customer, error) {
 
 // GetCustomersWithParams returns customers with advanced filtering
 func (c *Client) GetCustomersWithParams(ctx context.Context, params CustomerQueryParams) (*PaginatedResponse[Customer], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {

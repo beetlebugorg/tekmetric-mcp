@@ -72,7 +72,7 @@ func (c *Client) GetInventory(ctx context.Context, shopID int, partTypeID int, p
 
 // GetInventoryWithParams returns inventory parts with advanced filtering
 func (c *Client) GetInventoryWithParams(ctx context.Context, params InventoryQueryParams) (*PaginatedResponse[InventoryPart], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {
@@ -94,7 +94,7 @@ func (c *Client) GetInventoryWithParams(ctx context.Context, params InventoryQue
 
 // GetCannedJobs returns a paginated list of canned jobs
 func (c *Client) GetCannedJobs(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[CannedJob], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	path := fmt.Sprintf("/api/v1/canned-jobs?shop=%d&page=%d&size=%d", shopID, page, size)

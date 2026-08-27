@@ -15,12 +15,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/beetlebugorg/tekmetric-mcp/internal/config"
 	"github.com/beetlebugorg/tekmetric-mcp/pkg/retry"
 	"golang.org/x/time/rate"
 )
+
+// userAgent identifies this client to the API.
+const userAgent = "tekmetric-mcp (https://github.com/beetlebugorg/tekmetric-mcp)"
+
+// maxResponseBytes caps a response body, so a large reply cannot exhaust memory.
+const maxResponseBytes = 10 * 1024 * 1024
 
 // Client is a Tekmetric API client that handles authentication and API requests.
 // It manages OAuth2 tokens, implements rate limiting, and provides a clean
@@ -36,12 +43,21 @@ type Client struct {
 	clientID      string         // OAuth2 client ID
 	clientSecret  string         // OAuth2 client secret
 	httpClient    *http.Client   // HTTP client with timeout
-	accessToken   string         // Current OAuth2 access token
-	tokenExpiry   time.Time      // Token expiration time
-	shopIDs       []string       // Shop IDs from token scope
 	retryer       *retry.Retryer // Retry logic with exponential backoff
 	globalLimiter *rate.Limiter  // Global rate limiter (requests per second)
 	logger        *slog.Logger   // Structured logger
+
+	// fetchMu serializes the token fetch, so concurrent callers that find an
+	// expired token produce one request rather than one request each.
+	fetchMu sync.Mutex
+
+	// mu guards the three fields below. Every request reads them, and a token
+	// refresh writes them, so an HTTP server calling this client concurrently
+	// would race without the lock.
+	mu          sync.RWMutex
+	accessToken string    // Current OAuth2 access token
+	tokenExpiry time.Time // Token expiration time
+	shopIDs     []string  // Shop IDs from token scope
 }
 
 // NewClient creates a new Tekmetric API client.
@@ -77,8 +93,55 @@ func NewClient(cfg *config.TekmetricConfig, logger *slog.Logger) *Client {
 	}
 }
 
-// Authenticate obtains an access token from the Tekmetric API
+// Authenticate obtains an access token from the Tekmetric API.
+// It always contacts the token endpoint. Call ensureAuthenticated instead to
+// reuse a token that is still valid.
 func (c *Client) Authenticate(ctx context.Context) error {
+	c.fetchMu.Lock()
+	defer c.fetchMu.Unlock()
+
+	return c.fetchToken(ctx)
+}
+
+// ensureAuthenticated obtains a token when the cached one is missing or expired.
+//
+// Concurrent callers that find an expired token queue on fetchMu. The first one
+// refreshes the token and the rest see the fresh token and return, so a burst of
+// requests produces one token fetch.
+func (c *Client) ensureAuthenticated(ctx context.Context) error {
+	if c.tokenIsValid() {
+		return nil
+	}
+
+	c.fetchMu.Lock()
+	defer c.fetchMu.Unlock()
+
+	// Another caller may have refreshed the token while this one waited.
+	if c.tokenIsValid() {
+		return nil
+	}
+
+	return c.fetchToken(ctx)
+}
+
+// tokenIsValid reports whether the cached token exists and has not expired.
+func (c *Client) tokenIsValid() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.accessToken != "" && time.Now().Before(c.tokenExpiry)
+}
+
+// token returns the cached access token.
+func (c *Client) token() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.accessToken
+}
+
+// fetchToken requests a token and caches it. The caller must hold fetchMu.
+func (c *Client) fetchToken(ctx context.Context) error {
 	c.logger.Info("authenticating with Tekmetric API")
 
 	// Create Basic Auth header
@@ -95,7 +158,7 @@ func (c *Client) Authenticate(ctx context.Context) error {
 
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
-	req.Header.Set("User-Agent", "tekmetric-mcp (https://github.com/beetlebugorg/tekmetric-mcp)")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -104,7 +167,7 @@ func (c *Client) Authenticate(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 		c.logger.Debug("authentication failed", "status", resp.StatusCode, "body", string(body))
 		return fmt.Errorf("authentication failed with status %d", resp.StatusCode)
 	}
@@ -114,27 +177,40 @@ func (c *Client) Authenticate(ctx context.Context) error {
 		return fmt.Errorf("failed to decode token response: %w", err)
 	}
 
-	c.accessToken = tokenResp.AccessToken
-	c.shopIDs = strings.Fields(tokenResp.Scope) // Space-separated shop IDs
-
-	// Use expires_in from response if provided, otherwise assume 24h
+	expiry := time.Now().Add(24 * time.Hour) // Fallback when the API omits the lifetime
 	if tokenResp.ExpiresIn > 0 {
-		c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-		c.logger.Info("authentication successful", "shop_count", len(c.shopIDs), "expires_in", tokenResp.ExpiresIn)
-	} else {
-		c.tokenExpiry = time.Now().Add(24 * time.Hour) // Fallback to 24h
-		c.logger.Info("authentication successful", "shop_count", len(c.shopIDs), "expires_in", "24h (default)")
+		expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	}
+
+	shopIDs := strings.Fields(tokenResp.Scope) // Space-separated shop IDs
+
+	c.mu.Lock()
+	c.accessToken = tokenResp.AccessToken
+	c.shopIDs = shopIDs
+	c.tokenExpiry = expiry
+	c.mu.Unlock()
+
+	c.logger.Info("authentication successful",
+		"shop_count", len(shopIDs),
+		"expires_in", tokenResp.ExpiresIn)
 
 	return nil
 }
 
-// ensureAuthenticated checks if we have a valid token and authenticates if needed
-func (c *Client) ensureAuthenticated(ctx context.Context) error {
-	if c.accessToken == "" || time.Now().After(c.tokenExpiry) {
-		return c.Authenticate(ctx)
+// authorizeShop confirms the token covers a shop.
+//
+// It authenticates first, because the shop list comes from the token scope. A
+// client that has not authenticated has no scope, so checking first would reject
+// every shop.
+func (c *Client) authorizeShop(ctx context.Context, shopID int) error {
+	if shopID == 0 {
+		return nil
 	}
-	return nil
+
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return err
+	}
+	return c.isAuthorizedShop(shopID)
 }
 
 // isAuthorizedShop checks if the client is authorized to access the specified shop.
@@ -145,6 +221,9 @@ func (c *Client) isAuthorizedShop(shopID int) error {
 		return nil
 	}
 
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	shopIDStr := fmt.Sprintf("%d", shopID)
 	for _, authorizedID := range c.shopIDs {
 		if authorizedID == shopIDStr {
@@ -154,7 +233,10 @@ func (c *Client) isAuthorizedShop(shopID int) error {
 	return fmt.Errorf("unauthorized access to shop %d: not in token scope", shopID)
 }
 
-// doRequest performs an HTTP request with authentication and rate limiting
+// doRequest performs an HTTP request with authentication and rate limiting.
+//
+// It refreshes the token once when the API rejects it, because a token can
+// expire between the check and the request.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		return err
@@ -165,7 +247,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		return fmt.Errorf("rate limiter wait failed: %w", err)
 	}
 
-	return c.retryer.Do(func() error {
+	refreshed := false
+
+	return c.retryer.Do(ctx, func() error {
 		var reqBody io.Reader
 		if body != nil {
 			jsonData, err := json.Marshal(body)
@@ -180,62 +264,60 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 			return fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+c.accessToken)
-		req.Header.Set("User-Agent", "tekmetric-mcp (https://github.com/beetlebugorg/tekmetric-mcp)")
+		req.Header.Set("Authorization", "Bearer "+c.token())
+		req.Header.Set("User-Agent", userAgent)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
 
-		// Log request details for debugging
 		fullURL := c.baseURL + path
-		c.logger.Debug("API request",
-			"method", method,
-			"url", fullURL,
-			"has_body", body != nil)
+		c.logger.Debug("API request", "method", method, "url", fullURL, "has_body", body != nil)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("request failed: %w", err)
+			// A cancelled context is final. Any other transport fault may clear.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("request failed: %w", ctxErr)
+			}
+			return newTransportError(err)
 		}
 		defer resp.Body.Close()
 
-		// Limit response body to prevent memory exhaustion (10MB max)
-		maxBodySize := int64(10 * 1024 * 1024)
-		limitedBody := io.LimitReader(resp.Body, maxBodySize)
+		limitedBody := io.LimitReader(resp.Body, maxResponseBytes)
 		responseBody, err := io.ReadAll(limitedBody)
 		if err != nil {
 			return fmt.Errorf("failed to read response body: %w", err)
 		}
 
-		// Check if we hit the size limit
-		if int64(len(responseBody)) == maxBodySize {
-			c.logger.Warn("response body may have been truncated", "path", path, "max_size", maxBodySize)
+		if int64(len(responseBody)) == int64(maxResponseBytes) {
+			c.logger.Warn("response body may have been truncated", "path", path, "max_size", maxResponseBytes)
 		}
 
-		// Check for non-success status codes
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			// Log detailed error information
 			c.logger.Error("API request failed",
 				"method", method,
 				"url", fullURL,
 				"status", resp.StatusCode,
 				"response_body", string(responseBody))
 
-			// Rate limit (429) and server errors (5xx) are temporary - should retry
-			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-				return &temporaryError{
-					statusCode: resp.StatusCode,
-					message:    fmt.Sprintf("temporary error with status %d", resp.StatusCode),
+			// The token may have expired between the check and the request.
+			// Refresh once, then let the retryer make another attempt.
+			if resp.StatusCode == http.StatusUnauthorized && !refreshed {
+				refreshed = true
+				if authErr := c.Authenticate(ctx); authErr != nil {
+					return fmt.Errorf("re-authentication failed after status 401: %w", authErr)
 				}
+				return newTemporaryStatusError(resp.StatusCode)
 			}
-			// Client errors (4xx except 429) are permanent - don't retry
+
+			// Rate limit (429) and server errors (5xx) may clear on a retry.
+			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+				return newTemporaryStatusError(resp.StatusCode)
+			}
 			return fmt.Errorf("API request failed with status %d", resp.StatusCode)
 		}
 
-		// Log successful response at debug level
-		c.logger.Debug("API response",
-			"status", resp.StatusCode,
-			"content_length", len(responseBody))
+		c.logger.Debug("API response", "status", resp.StatusCode, "content_length", len(responseBody))
 
 		if result != nil {
 			if err := json.Unmarshal(responseBody, result); err != nil {

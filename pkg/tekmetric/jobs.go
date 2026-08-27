@@ -155,7 +155,7 @@ type JobQueryParams struct {
 
 // GetJobs returns a paginated list of jobs
 func (c *Client) GetJobs(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[Job], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	path := fmt.Sprintf("/api/v1/jobs?shop=%d&page=%d&size=%d", shopID, page, size)
@@ -178,7 +178,7 @@ func (c *Client) GetJob(ctx context.Context, id int) (*Job, error) {
 
 // GetJobsWithParams returns jobs with advanced filtering
 func (c *Client) GetJobsWithParams(ctx context.Context, params JobQueryParams) (*PaginatedResponse[Job], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {

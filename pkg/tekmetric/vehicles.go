@@ -54,7 +54,7 @@ type VehicleQueryParams struct {
 
 // GetVehicles returns a paginated list of vehicles
 func (c *Client) GetVehicles(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[Vehicle], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	path := fmt.Sprintf("/api/v1/vehicles?shop=%d&page=%d&size=%d", shopID, page, size)
@@ -67,7 +67,7 @@ func (c *Client) GetVehicles(ctx context.Context, shopID int, page int, size int
 
 // SearchVehicles searches vehicles using the API's native search
 func (c *Client) SearchVehicles(ctx context.Context, shopID int, query string, page int, size int) (*PaginatedResponse[Vehicle], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	query = url.QueryEscape(query)
@@ -91,7 +91,7 @@ func (c *Client) GetVehicle(ctx context.Context, id int) (*Vehicle, error) {
 
 // GetVehiclesWithParams returns vehicles with advanced filtering
 func (c *Client) GetVehiclesWithParams(ctx context.Context, params VehicleQueryParams) (*PaginatedResponse[Vehicle], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {

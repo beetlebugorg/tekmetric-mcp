@@ -4,6 +4,8 @@
 package retry
 
 import (
+	"context"
+	"errors"
 	"math"
 	"math/rand"
 	"time"
@@ -41,104 +43,86 @@ func New(maxRetries, maxBackoffSec int) *Retryer {
 	}
 }
 
-// Temporary is an interface for errors that are temporary and should be retried.
+// Temporary marks an error that another attempt may resolve.
+// An error that does not implement this interface is permanent.
 type Temporary interface {
 	error
 	Temporary() bool
 }
 
+// IsTemporary reports whether an error, or any error it wraps, is temporary.
+func IsTemporary(err error) bool {
+	var temp Temporary
+	if errors.As(err, &temp) {
+		return temp.Temporary()
+	}
+	return false
+}
+
 // Do executes a function with exponential backoff retry logic.
-// If the function fails with a temporary error, it will retry up to maxRetries times
-// with increasing delays between attempts.
+// It retries only a temporary error, and it waits longer before each attempt.
 //
 // The function stops retrying when:
-//   - The function returns nil (success)
-//   - The function returns a non-temporary error (permanent failure)
-//   - Maximum retry attempts are reached
+//   - fn returns nil
+//   - fn returns an error that is not temporary
+//   - the attempts reach maxRetries
+//   - ctx is cancelled
 //
 // Parameters:
+//   - ctx: Context that cancels both the attempts and the waits
 //   - fn: Function to execute and retry on failure
 //
 // Returns:
-//   - error: The last error returned by fn, or nil on success
-func (rl *Retryer) Do(fn func() error) error {
+//   - error: The last error fn returned, the context error, or nil on success
+func (rl *Retryer) Do(ctx context.Context, fn func() error) error {
 	var err error
 
 	// Try the operation up to maxRetries + 1 times (initial attempt + retries)
 	for attempt := 0; attempt <= rl.maxRetries; attempt++ {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if err != nil {
+				return err
+			}
+			return ctxErr
+		}
+
 		err = fn()
 		if err == nil {
-			return nil // Success
+			return nil
 		}
 
-		// Check if error is temporary using the Temporary() method pattern
-		if tempErr, ok := err.(interface{ Temporary() bool }); ok && !tempErr.Temporary() {
-			// Non-temporary error - don't retry
+		if !IsTemporary(err) {
 			return err
 		}
 
-		// For errors that don't implement Temporary(), check if they're wrapped temporary errors
-		// by trying to unwrap and check the type name
-		errStr := err.Error()
-		if !isLikelyTemporary(errStr) {
-			// Doesn't look like a temporary error - don't retry
-			return err
-		}
-
-		// If this was the last attempt, don't wait - just return the error
+		// The last attempt does not wait.
 		if attempt == rl.maxRetries {
 			break
 		}
 
-		// Calculate backoff duration and wait before next attempt
-		backoff := rl.calculateBackoff(attempt)
-		time.Sleep(backoff)
+		if waitErr := wait(ctx, rl.calculateBackoff(attempt)); waitErr != nil {
+			return err
+		}
 	}
 
 	return err
 }
 
-// isLikelyTemporary checks if an error message indicates a temporary error.
-// This is a heuristic for errors that don't implement the Temporary() interface.
-func isLikelyTemporary(errMsg string) bool {
-	// Check for temporary error indicators
-	temporaryIndicators := []string{
-		"temporary error",
-		"status 429",
-		"status 5",
-		"too many requests",
-		"server error",
-		"service unavailable",
-		"gateway timeout",
-		"connection reset",
-		"connection refused",
-		"timeout",
+// wait sleeps for a duration, or returns early when the context is cancelled.
+func wait(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
 	}
 
-	for _, indicator := range temporaryIndicators {
-		if len(errMsg) > 0 && contains(errMsg, indicator) {
-			return true
-		}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
-
-	return false
-}
-
-// contains checks if a string contains a substring (case-insensitive helper).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		indexOf(s, substr) >= 0))
-}
-
-// indexOf returns the index of substr in s, or -1 if not found.
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
 
 // calculateBackoff calculates the backoff duration using exponential backoff with jitter.

@@ -51,7 +51,7 @@ type EmployeeQueryParams struct {
 
 // GetEmployees returns a paginated list of employees
 func (c *Client) GetEmployees(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[Employee], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	path := fmt.Sprintf("/api/v1/employees?shop=%d&page=%d&size=%d", shopID, page, size)
@@ -74,7 +74,7 @@ func (c *Client) GetEmployee(ctx context.Context, id int) (*Employee, error) {
 
 // GetEmployeesWithParams returns employees with advanced filtering
 func (c *Client) GetEmployeesWithParams(ctx context.Context, params EmployeeQueryParams) (*PaginatedResponse[Employee], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {
