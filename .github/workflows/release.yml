@@ -41,6 +41,11 @@ jobs:
           make package-extension VERSION=${VERSION}
           mv dist/tekmetric-mcp.mcpb dist/tekmetric-mcp-${VERSION}.mcpb
 
+      - name: Check the extension
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          python3 scripts/test-extension.py dist/tekmetric-mcp-${VERSION}.mcpb
+
       - name: Upload .mcpb to Release
         run: |
           VERSION=${GITHUB_REF_NAME#v}

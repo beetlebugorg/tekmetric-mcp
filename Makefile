@@ -209,14 +209,5 @@ package-extension: ## Package existing binaries into .mcpb (for CI after GoRelea
 	@echo "Desktop Extension created: $(DIST_DIR)/tekmetric-mcp.mcpb"
 	@ls -lh $(DIST_DIR)/tekmetric-mcp.mcpb
 
-extension-test: ## Test extension locally
-	@echo "Testing extension installation..."
-	@if [ ! -f $(DIST_DIR)/tekmetric-mcp.mcpb ]; then \
-		echo "ERROR: Extension not built. Run 'make extension' first."; \
-		exit 1; \
-	fi
-	@echo "Extension file: $(DIST_DIR)/tekmetric-mcp.mcpb"
-	@unzip -l $(DIST_DIR)/tekmetric-mcp.mcpb
-	@echo "\nTo install in Claude Desktop:"
-	@echo "1. Open the .mcpb file with Claude Desktop"
-	@echo "2. Or copy to: ~/Library/Application Support/Claude/extensions/"
+extension-test: ## Check a built .mcpb: binaries, settings, and that it runs
+	@python3 scripts/test-extension.py $(DIST_DIR)/tekmetric-mcp.mcpb

@@ -8,18 +8,18 @@ sidebar_position: 1
 
 ## What You'll Need
 
-- [Claude Desktop app](https://claude.ai/download) installed (Mac or Windows)
+- [Claude Desktop app](https://claude.ai/download) installed
 - Your Tekmetric API credentials ([see here](../installation/index.md#tekmetric-api-credentials))
 
 ## Step 1: Download the Desktop Extension
 
 1. Go to [Releases](https://github.com/beetlebugorg/tekmetric-mcp/releases)
-2. Download **tekmetric-mcp.mcpb** (the latest version)
+2. Download the `.mcpb` file, named `tekmetric-mcp-<version>.mcpb`
 3. Save it somewhere you can find it (like your Downloads folder)
 
 ## Step 2: Install the Extension
 
-1. **Double-click** the `tekmetric-mcp.mcpb` file you downloaded
+1. **Double-click** the `.mcpb` file you downloaded
 2. Claude Desktop will automatically open
 3. You'll see a prompt asking you to configure the server
 
@@ -114,7 +114,7 @@ If you see your shop information, **you're all set!** 🎉
 
 When a new version is released:
 
-1. Download the new `tekmetric-mcp.mcpb` file
+1. Download the new `.mcpb` file
 2. Double-click it to install
 3. Your existing configuration will be preserved
 4. Restart Claude Desktop
