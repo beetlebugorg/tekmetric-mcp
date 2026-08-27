@@ -8,6 +8,7 @@ import (
 	"github.com/beetlebugorg/tekmetric-mcp/pkg/tekmetric"
 	"github.com/beetlebugorg/tekmetric-mcp/pkg/tekmetric/tekmetrictest"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // newTestRegistry returns a registry wired to the mock API.
@@ -36,6 +37,14 @@ func args(pairs map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// callRequest wraps tool arguments in the request the handler now receives.
+func callRequest(arguments map[string]any) mcp.CallToolRequest {
+	var request mcp.CallToolRequest
+	request.Params.Name = "test"
+	request.Params.Arguments = arguments
+	return request
 }
 
 // text returns the text of a tool result.
@@ -72,55 +81,55 @@ func seedShop(api *tekmetrictest.API) {
 func TestHandlersReturnData(t *testing.T) {
 	tests := []struct {
 		name    string
-		handler func(*Registry) func(map[string]any) (*mcp.CallToolResult, error)
+		handler func(*Registry) server.ToolHandlerFunc
 		args    map[string]any
 		want    string
 	}{
 		{
 			name:    "shops",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleShops },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleShops },
 			args:    args(map[string]any{}),
 			want:    "Main Street Auto",
 		},
 		{
 			name:    "customers",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleCustomers },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleCustomers },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "Lovelace",
 		},
 		{
 			name:    "vehicles",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleVehicles },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleVehicles },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "F-150",
 		},
 		{
 			name:    "repair orders",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleRepairOrders },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleRepairOrders },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "1001",
 		},
 		{
 			name:    "appointments",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleAppointments },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleAppointments },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "40",
 		},
 		{
 			name:    "employees",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleEmployees },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleEmployees },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "Hopper",
 		},
 		{
 			name:    "inventory",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleInventory },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleInventory },
 			args:    args(map[string]any{"shop": 1, "part_type_id": 1}),
 			want:    "Oil Filter",
 		},
 		{
 			name:    "jobs",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleJobs },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleJobs },
 			args:    args(map[string]any{"shop": 1}),
 			want:    "Oil Change",
 		},
@@ -131,7 +140,7 @@ func TestHandlersReturnData(t *testing.T) {
 			api := tekmetrictest.New(t)
 			seedShop(api)
 
-			result, err := tt.handler(newTestRegistry(t, api))(tt.args)
+			result, err := tt.handler(newTestRegistry(t, api))(t.Context(), callRequest(tt.args))
 			if err != nil {
 				t.Fatalf("handler error = %v", err)
 			}
@@ -155,8 +164,7 @@ func TestLimitsDoNotPanic(t *testing.T) {
 			api := tekmetrictest.New(t)
 			seedShop(api)
 
-			result, err := newTestRegistry(t, api).handleRepairOrders(
-				args(map[string]any{"shop": 1, "limit": limit}))
+			result, err := newTestRegistry(t, api).handleRepairOrders(t.Context(), callRequest(args(map[string]any{"shop": 1, "limit": limit})))
 			if err != nil {
 				t.Fatalf("limit %d: error = %v", limit, err)
 			}
@@ -169,8 +177,7 @@ func TestLimitsDoNotPanic(t *testing.T) {
 			api := tekmetrictest.New(t)
 			seedShop(api)
 
-			result, err := newTestRegistry(t, api).handleShops(
-				args(map[string]any{"query": "Main", "limit": limit}))
+			result, err := newTestRegistry(t, api).handleShops(t.Context(), callRequest(args(map[string]any{"query": "Main", "limit": limit})))
 			if err != nil {
 				t.Fatalf("limit %d: error = %v", limit, err)
 			}
@@ -183,8 +190,7 @@ func TestLimitsDoNotPanic(t *testing.T) {
 			api := tekmetrictest.New(t)
 			seedShop(api)
 
-			result, err := newTestRegistry(t, api).handleInventory(
-				args(map[string]any{"shop": 1, "part_type_id": 1, "limit": limit, "query": "Oil"}))
+			result, err := newTestRegistry(t, api).handleInventory(t.Context(), callRequest(args(map[string]any{"shop": 1, "part_type_id": 1, "limit": limit, "query": "Oil"})))
 			if err != nil {
 				t.Fatalf("limit %d: error = %v", limit, err)
 			}
@@ -200,22 +206,22 @@ func TestLimitsDoNotPanic(t *testing.T) {
 func TestMalformedDateIsReported(t *testing.T) {
 	tests := []struct {
 		name    string
-		handler func(*Registry) func(map[string]any) (*mcp.CallToolResult, error)
+		handler func(*Registry) server.ToolHandlerFunc
 		args    map[string]any
 	}{
 		{
 			name:    "repair orders start_date",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleRepairOrders },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleRepairOrders },
 			args:    map[string]any{"shop": float64(1), "start_date": "yesterday"},
 		},
 		{
 			name:    "repair orders end_date",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleRepairOrders },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleRepairOrders },
 			args:    map[string]any{"shop": float64(1), "end_date": "03/14/2025"},
 		},
 		{
 			name:    "appointments start_date",
-			handler: func(r *Registry) func(map[string]any) (*mcp.CallToolResult, error) { return r.handleAppointments },
+			handler: func(r *Registry) server.ToolHandlerFunc { return r.handleAppointments },
 			args:    map[string]any{"shop": float64(1), "start_date": "not a date"},
 		},
 	}
@@ -225,7 +231,7 @@ func TestMalformedDateIsReported(t *testing.T) {
 			api := tekmetrictest.New(t)
 			seedShop(api)
 
-			result, err := tt.handler(newTestRegistry(t, api))(tt.args)
+			result, err := tt.handler(newTestRegistry(t, api))(t.Context(), callRequest(tt.args))
 			if err != nil {
 				t.Fatalf("handler error = %v", err)
 			}
@@ -243,8 +249,7 @@ func TestValidDateIsAccepted(t *testing.T) {
 	api := tekmetrictest.New(t)
 	seedShop(api)
 
-	result, err := newTestRegistry(t, api).handleRepairOrders(
-		map[string]any{"shop": float64(1), "start_date": "2025-01-01"})
+	result, err := newTestRegistry(t, api).handleRepairOrders(t.Context(), callRequest(map[string]any{"shop": float64(1), "start_date": "2025-01-01"}))
 	if err != nil {
 		t.Fatalf("handler error = %v", err)
 	}
@@ -261,7 +266,7 @@ func TestUnauthorizedShopIsReported(t *testing.T) {
 	api := tekmetrictest.New(t)
 	seedShop(api)
 
-	result, err := newTestRegistry(t, api).handleCustomers(args(map[string]any{"shop": 99}))
+	result, err := newTestRegistry(t, api).handleCustomers(t.Context(), callRequest(args(map[string]any{"shop": 99})))
 	if err != nil {
 		t.Fatalf("handler error = %v", err)
 	}
@@ -274,7 +279,7 @@ func TestInventoryRequiresPartType(t *testing.T) {
 	api := tekmetrictest.New(t)
 	seedShop(api)
 
-	result, err := newTestRegistry(t, api).handleInventory(args(map[string]any{"shop": 1}))
+	result, err := newTestRegistry(t, api).handleInventory(t.Context(), callRequest(args(map[string]any{"shop": 1})))
 	if err != nil {
 		t.Fatalf("handler error = %v", err)
 	}
@@ -289,7 +294,7 @@ func TestRepairOrdersCarryTheFinancialWarning(t *testing.T) {
 	api := tekmetrictest.New(t)
 	seedShop(api)
 
-	result, err := newTestRegistry(t, api).handleRepairOrders(args(map[string]any{"shop": 1}))
+	result, err := newTestRegistry(t, api).handleRepairOrders(t.Context(), callRequest(args(map[string]any{"shop": 1})))
 	if err != nil {
 		t.Fatalf("handler error = %v", err)
 	}
@@ -303,7 +308,7 @@ func TestAPIFailureBecomesAToolError(t *testing.T) {
 	seedShop(api)
 	api.FailAlways("/api/v1/customers", 500)
 
-	result, err := newTestRegistry(t, api).handleCustomers(args(map[string]any{"shop": 1}))
+	result, err := newTestRegistry(t, api).handleCustomers(t.Context(), callRequest(args(map[string]any{"shop": 1})))
 	if err != nil {
 		t.Fatalf("handler error = %v", err)
 	}

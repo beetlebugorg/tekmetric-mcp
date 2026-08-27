@@ -29,8 +29,8 @@ func (r *Registry) RegisterShopTools(s *server.MCPServer) {
 }
 
 // handleShops searches or lists shops
-func (r *Registry) handleShops(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleShops(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	shops, err := r.client.GetShops(ctx)
 	if err != nil {

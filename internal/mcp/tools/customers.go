@@ -59,8 +59,8 @@ func (r *Registry) RegisterCustomerTools(s *server.MCPServer) {
 }
 
 // handleCustomers handles customer search and retrieval
-func (r *Registry) handleCustomers(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleCustomers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// If ID is provided, get specific customer
 	if id, ok := parseFloatArg(arguments, "id"); ok {
@@ -129,4 +129,3 @@ func (r *Registry) handleCustomers(arguments map[string]interface{}) (*mcp.CallT
 		"CUSTOMERS",
 	)
 }
-

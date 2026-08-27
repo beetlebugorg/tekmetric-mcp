@@ -52,8 +52,8 @@ func (r *Registry) RegisterVehicleTools(s *server.MCPServer) {
 }
 
 // handleVehicles handles vehicle search and retrieval
-func (r *Registry) handleVehicles(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleVehicles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// If ID is provided, get specific vehicle
 	if id, ok := parseFloatArg(arguments, "id"); ok {

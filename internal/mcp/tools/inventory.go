@@ -35,8 +35,8 @@ func (r *Registry) RegisterInventoryTools(s *server.MCPServer) {
 }
 
 // handleInventory searches or lists inventory parts
-func (r *Registry) handleInventory(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleInventory(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// Get required part type ID
 	partTypeID, errResult := requireFloatArg(arguments, "part_type_id")
