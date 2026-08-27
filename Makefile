@@ -177,6 +177,8 @@ package-extension: ## Package existing binaries into .mcpb (for CI after GoRelea
 		cp $(DIST_DIR)/tekmetric-mcp_linux_amd64_v1/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-amd64; \
 		cp $(DIST_DIR)/tekmetric-mcp_linux_arm64_v8.0/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-arm64; \
 		cp $(DIST_DIR)/tekmetric-mcp_windows_amd64_v1/tekmetric-mcp.exe $(DIST_DIR)/extension/tekmetric-mcp-windows-amd64.exe; \
+		cp $(DIST_DIR)/tekmetric-mcp_windows_arm64_v8.0/tekmetric-mcp.exe $(DIST_DIR)/extension/tekmetric-mcp-windows-arm64.exe; \
+		cp $(DIST_DIR)/launcher_windows_amd64_v1/tekmetric-mcp-windows.exe $(DIST_DIR)/extension/tekmetric-mcp-windows.exe; \
 	else \
 		echo "Using flat dist/ output..."; \
 		cp $(DIST_DIR)/$(BINARY_NAME)-darwin-universal $(DIST_DIR)/extension/ 2>/dev/null || true; \

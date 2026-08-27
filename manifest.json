@@ -23,7 +23,7 @@
       },
       "platform_overrides": {
         "win32": {
-          "command": "${__dirname}/tekmetric-mcp-windows-amd64.exe"
+          "command": "${__dirname}/tekmetric-mcp-windows.exe"
         },
         "linux": {
           "command": "${__dirname}/tekmetric-mcp-linux"

@@ -25,6 +25,18 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+  - id: launcher
+    main: ./cmd/launcher
+    binary: tekmetric-mcp-windows
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+
 # The Desktop extension names one macOS command for both architectures, so the
 # release must carry a universal binary. GoReleaser builds it itself, which
 # keeps the release runner free of a macOS dependency on lipo.
@@ -37,6 +49,9 @@ universal_binaries:
 
 archives:
   - id: default
+    ids:
+      - tekmetric-mcp
+      - tekmetric-mcp-universal
     formats: ["tar.gz"]
     format_overrides:
       - goos: windows

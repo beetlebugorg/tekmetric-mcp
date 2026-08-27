@@ -21,6 +21,16 @@ import zipfile
 
 DEFAULT_ARCHIVE = os.path.join("dist", "tekmetric-mcp.mcpb")
 
+# A launcher chooses a build by architecture, which the manifest cannot express.
+# The shell launcher names its builds in readable text. The Windows launcher is
+# a compiled program, so its builds are listed here.
+LAUNCHER_TARGETS = {
+    "tekmetric-mcp-windows.exe": [
+        "tekmetric-mcp-windows-amd64.exe",
+        "tekmetric-mcp-windows-arm64.exe",
+    ],
+}
+
 # Claude Desktop keys platform_overrides the way Node names platforms.
 PLATFORM_KEYS = {"Darwin": "darwin", "Linux": "linux", "Windows": "win32"}
 
@@ -49,11 +59,16 @@ def binary_name(command):
 
 
 def launcher_targets(path, names):
-    """Return the archive members a launcher script runs.
+    """Return the archive members a launcher runs.
 
-    A launcher starts with a shebang. Any archive member it mentions is a build
-    it may hand control to, so each one has to be present and executable.
+    A compiled launcher is listed in LAUNCHER_TARGETS. A shell launcher starts
+    with a shebang, and any archive member it names is a build it may hand
+    control to. Each one has to be present and executable.
     """
+    declared = LAUNCHER_TARGETS.get(os.path.basename(path))
+    if declared is not None:
+        return declared
+
     try:
         with open(path, "rb") as handle:
             if handle.read(2) != b"#!":
