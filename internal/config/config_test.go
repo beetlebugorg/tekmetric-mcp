@@ -20,7 +20,8 @@ func validConfig() *Config {
 			MaxRetries:     3,
 			MaxBackoffSec:  60,
 		},
-		Server: ServerConfig{Name: "tekmetric-mcp", Version: "0.1.0"},
+		Server:   ServerConfig{Name: "tekmetric-mcp", Version: "0.1.0"},
+		Analysis: AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120},
 	}
 }
 
@@ -134,5 +135,33 @@ func TestValidateAllowsZeroMaxRetries(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateAnalysisLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantMsg string
+	}{
+		{"zero max pages", func(c *Config) { c.Analysis.MaxPages = 0 }, "analysis.max_pages"},
+		{"negative max pages", func(c *Config) { c.Analysis.MaxPages = -1 }, "analysis.max_pages"},
+		{"zero max records", func(c *Config) { c.Analysis.MaxRecords = 0 }, "analysis.max_records"},
+		{"zero timeout", func(c *Config) { c.Analysis.TimeoutSeconds = 0 }, "analysis.timeout_seconds"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("Validate() returned nil, want an error")
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("Validate() error = %q, want it to mention %q", err, tt.wantMsg)
+			}
+		})
 	}
 }

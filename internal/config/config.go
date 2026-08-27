@@ -47,10 +47,9 @@ type ServerConfig struct {
 // AnalysisConfig holds configuration for analysis tools.
 // These settings control safety limits and behavior for data analysis tools.
 type AnalysisConfig struct {
-	MaxPages       int  `mapstructure:"max_pages"`        // Maximum pages to fetch per analysis (safety limit)
-	MaxRecords     int  `mapstructure:"max_records"`      // Maximum records to process (memory safety)
-	TimeoutSeconds int  `mapstructure:"timeout_seconds"`  // Analysis timeout in seconds
-	EnableCaching  bool `mapstructure:"enable_caching"`   // Enable result caching (future feature)
+	MaxPages       int `mapstructure:"max_pages"`       // Maximum pages to fetch per analysis (safety limit)
+	MaxRecords     int `mapstructure:"max_records"`     // Maximum records to process (memory safety)
+	TimeoutSeconds int `mapstructure:"timeout_seconds"` // Analysis timeout in seconds
 }
 
 // Load loads configuration from multiple sources in order of precedence:
@@ -80,7 +79,6 @@ func Load() (*Config, error) {
 	v.SetDefault("analysis.max_pages", 50)
 	v.SetDefault("analysis.max_records", 5000)
 	v.SetDefault("analysis.timeout_seconds", 120)
-	v.SetDefault("analysis.enable_caching", false)
 
 	// Enable environment variable support
 	// Environment variables should be prefixed with TEKMETRIC_
@@ -171,6 +169,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Tekmetric.MaxRetries < 0 {
 		return fmt.Errorf("tekmetric.max_retries must be non-negative")
+	}
+
+	// The analysis limits bound how much data one tool call fetches.
+	if c.Analysis.MaxPages < 1 {
+		return fmt.Errorf("analysis.max_pages must be at least 1")
+	}
+	if c.Analysis.MaxRecords < 1 {
+		return fmt.Errorf("analysis.max_records must be at least 1")
+	}
+	if c.Analysis.TimeoutSeconds < 1 {
+		return fmt.Errorf("analysis.timeout_seconds must be at least 1")
 	}
 	return nil
 }

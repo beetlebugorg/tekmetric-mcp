@@ -57,7 +57,7 @@ func (v *VehicleServiceAnalysis) Schema() map[string]interface{} {
 			},
 			"max_pages": map[string]interface{}{
 				"type":        "number",
-				"description": "Maximum pages to fetch (default 10, max 1000 repair orders)",
+				"description": "Maximum pages to fetch. The server config sets the ceiling.",
 			},
 		},
 		"required": []string{"vehicle_id"},
@@ -89,12 +89,13 @@ func (v *VehicleServiceAnalysis) Execute(
 		endDate = ed
 	}
 
-	maxPages := 10
-	if mp, ok := params["max_pages"].(float64); ok {
+	// The configured page limit is the ceiling. A caller may ask for fewer.
+	maxPages := v.MaxPages()
+	if mp, ok := params["max_pages"].(float64); ok && int(mp) < maxPages {
 		maxPages = int(mp)
-		if maxPages > 50 {
-			maxPages = 50 // Safety limit
-		}
+	}
+	if maxPages < 1 {
+		maxPages = 1
 	}
 
 	v.logger.Info("fetching vehicle service timeline",
@@ -115,13 +116,19 @@ func (v *VehicleServiceAnalysis) Execute(
 	}
 
 	// 2. Fetch all repair orders for this vehicle
+	if timeout := v.AnalysisTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	repairOrders, metadata, err := FetchAllPages(ctx, v.logger, func(page int) (*tekmetric.PaginatedResponse[tekmetric.RepairOrder], error) {
 		queryParams := tekmetric.RepairOrderQueryParams{
-			Shop:      shopID,
-			VehicleID: int(vehicleID),
-			Page:      page,
-			Size:      100,
-			Sort:      "createdDate",
+			Shop:          shopID,
+			VehicleID:     int(vehicleID),
+			Page:          page,
+			Size:          100,
+			Sort:          "createdDate",
 			SortDirection: "DESC",
 		}
 		if startDate != "" {
@@ -141,6 +148,14 @@ func (v *VehicleServiceAnalysis) Execute(
 		}
 	}
 
+	// Drop the tail when the result is over the record limit.
+	if limit := v.MaxRecords(); limit > 0 && len(repairOrders) > limit {
+		v.logger.Warn("truncated analysis to the record limit",
+			"fetched", len(repairOrders), "limit", limit)
+		repairOrders = repairOrders[:limit]
+		metadata.RecordsProcessed = limit
+	}
+
 	// Sort chronologically (oldest first for timeline)
 	sort.Slice(repairOrders, func(i, j int) bool {
 		return repairOrders[i].CreatedDate.Before(repairOrders[j].CreatedDate)
@@ -157,8 +172,8 @@ func (v *VehicleServiceAnalysis) Execute(
 	prompt := v.createAnalysisPrompt(vehicle, timeline, stats)
 
 	return &AnalysisResult{
-		Summary:  summary,
-		Prompt:   prompt,
+		Summary: summary,
+		Prompt:  prompt,
 		Data: map[string]interface{}{
 			"vehicle":  vehicle,
 			"timeline": timeline,
@@ -183,15 +198,15 @@ type TimelineEvent struct {
 
 // ServiceStats holds aggregate statistics about service history
 type ServiceStats struct {
-	TotalVisits        int     `json:"total_visits"`
-	TotalSpent         float64 `json:"total_spent"`
-	TotalLaborHours    float64 `json:"total_labor_hours"`
-	AverageVisitCost   float64 `json:"average_visit_cost"`
-	FirstVisitDate     string  `json:"first_visit_date"`
-	LastVisitDate      string  `json:"last_visit_date"`
-	MileageRange       string  `json:"mileage_range"`
-	CompletedOrders    int     `json:"completed_orders"`
-	EstimatesDeclined  int     `json:"estimates_declined"`
+	TotalVisits       int     `json:"total_visits"`
+	TotalSpent        float64 `json:"total_spent"`
+	TotalLaborHours   float64 `json:"total_labor_hours"`
+	AverageVisitCost  float64 `json:"average_visit_cost"`
+	FirstVisitDate    string  `json:"first_visit_date"`
+	LastVisitDate     string  `json:"last_visit_date"`
+	MileageRange      string  `json:"mileage_range"`
+	CompletedOrders   int     `json:"completed_orders"`
+	EstimatesDeclined int     `json:"estimates_declined"`
 }
 
 func (v *VehicleServiceAnalysis) buildTimeline(ros []tekmetric.RepairOrder) []TimelineEvent {
@@ -315,7 +330,6 @@ func (v *VehicleServiceAnalysis) calculateStats(ros []tekmetric.RepairOrder) Ser
 
 	return stats
 }
-
 
 func (v *VehicleServiceAnalysis) formatSummary(vehicle *tekmetric.Vehicle, roCount int, stats ServiceStats) string {
 	return fmt.Sprintf(
