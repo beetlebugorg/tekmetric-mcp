@@ -3,7 +3,6 @@ package tekmetric
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 )
 
@@ -41,8 +40,8 @@ type Employee struct {
 // EmployeeQueryParams holds query parameters for employee searches
 type EmployeeQueryParams struct {
 	Shop             int    `url:"shop,omitempty"`
-	Page             int    `url:"page,omitempty"`
-	Size             int    `url:"size,omitempty"`
+	Page             int    `url:"page"`
+	Size             int    `url:"size"`
 	Search           string `url:"search,omitempty"`           // Search by name
 	UpdatedDateStart string `url:"updatedDateStart,omitempty"` // Filter by updated date
 	UpdatedDateEnd   string `url:"updatedDateEnd,omitempty"`   // Filter by updated date
@@ -81,34 +80,12 @@ func (c *Client) GetEmployeesWithParams(ctx context.Context, params EmployeeQuer
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
-	query := url.Values{}
-	// Shop parameter is optional but recommended
-	if params.Shop > 0 {
-		query.Add("shop", fmt.Sprintf("%d", params.Shop))
-	}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	if params.Size > 0 {
-		query.Add("size", fmt.Sprintf("%d", params.Size))
-	} else {
-		query.Add("size", "100")
-	}
-	if params.Search != "" {
-		query.Add("search", params.Search)
-	}
-	if params.UpdatedDateStart != "" {
-		query.Add("updatedDateStart", params.UpdatedDateStart)
-	}
-	if params.UpdatedDateEnd != "" {
-		query.Add("updatedDateEnd", params.UpdatedDateEnd)
-	}
-	if params.Sort != "" {
-		query.Add("sort", params.Sort)
-	}
-	if params.SortDirection != "" {
-		query.Add("sortDirection", params.SortDirection)
+	encoded, err := encodeQuery(params)
+	if err != nil {
+		return nil, err
 	}
 
-	path := "/api/v1/employees?" + query.Encode()
+	path := "/api/v1/employees?" + encoded
 	var resp PaginatedResponse[Employee]
 	if err := c.doRequest(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err

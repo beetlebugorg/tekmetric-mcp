@@ -47,8 +47,8 @@ type Customer struct {
 // Note: By default, deleted records are excluded unless DeletedDateStart/DeletedDateEnd are explicitly set
 type CustomerQueryParams struct {
 	Shop                          int    `url:"shop,omitempty"`
-	Page                          int    `url:"page,omitempty"`
-	Size                          int    `url:"size,omitempty"`
+	Page                          int    `url:"page"`
+	Size                          int    `url:"size"`
 	Search                        string `url:"search,omitempty"`                        // Search by name, email, phone
 	EligibleForAccountsReceivable *bool  `url:"eligibleForAccountsReceivable,omitempty"` // Filter by AR eligibility
 	OkForMarketing                *bool  `url:"okForMarketing,omitempty"`                // Filter by marketing permission
@@ -105,43 +105,12 @@ func (c *Client) GetCustomersWithParams(ctx context.Context, params CustomerQuer
 		return nil, err
 	}
 
-	query := url.Values{}
-	if params.Shop > 0 {
-		query.Add("shop", fmt.Sprintf("%d", params.Shop))
-	}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	if params.Size > 0 {
-		query.Add("size", fmt.Sprintf("%d", params.Size))
-	} else {
-		query.Add("size", "100")
-	}
-	if params.Search != "" {
-		query.Add("search", params.Search)
-	}
-	if params.EligibleForAccountsReceivable != nil {
-		query.Add("eligibleForAccountsReceivable", fmt.Sprintf("%t", *params.EligibleForAccountsReceivable))
-	}
-	if params.OkForMarketing != nil {
-		query.Add("okForMarketing", fmt.Sprintf("%t", *params.OkForMarketing))
-	}
-	if params.UpdatedDateStart != "" {
-		query.Add("updatedDateStart", params.UpdatedDateStart)
-	}
-	if params.UpdatedDateEnd != "" {
-		query.Add("updatedDateEnd", params.UpdatedDateEnd)
-	}
-	// Deleted date filters removed - we never query for deleted records
-	if params.CustomerTypeID > 0 {
-		query.Add("customerTypeId", fmt.Sprintf("%d", params.CustomerTypeID))
-	}
-	if params.Sort != "" {
-		query.Add("sort", params.Sort)
-	}
-	if params.SortDirection != "" {
-		query.Add("sortDirection", params.SortDirection)
+	encoded, err := encodeQuery(params)
+	if err != nil {
+		return nil, err
 	}
 
-	path := "/api/v1/customers?" + query.Encode()
+	path := "/api/v1/customers?" + encoded
 	var resp PaginatedResponse[Customer]
 	if err := c.doRequest(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err

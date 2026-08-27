@@ -201,3 +201,187 @@ func TestDefaultPageSize(t *testing.T) {
 		t.Errorf("query = %s, want page=0&shop=1&size=100", got)
 	}
 }
+
+// TestQueryStringsForUncoveredFields records the fields the main table does not
+// set. They matter because each one uses a format the encoder must reproduce:
+// a float, a bool pointer, and the date fields.
+func TestQueryStringsForUncoveredFields(t *testing.T) {
+	yes := true
+	no := false
+
+	tests := []struct {
+		name string
+		call func(context.Context, *tekmetric.Client)
+		want string
+	}{
+		{
+			// The encoder writes the shortest form of a float. The earlier code
+			// used %f, which wrote ratio=65.000000. Both parse to the same
+			// number, and the shorter form is what a caller would write.
+			name: "inventory tire dimensions",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetInventoryWithParams(ctx, tekmetric.InventoryQueryParams{
+					Shop: 1, PartTypeID: 2, Size: 50,
+					Width: "225", Ratio: 65, Diameter: 17,
+				})
+			},
+			want: "diameter=17&page=0&partTypeId=2&ratio=65&shop=1&size=50&width=225",
+		},
+		{
+			name: "inventory keeps a fractional tire ratio",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetInventoryWithParams(ctx, tekmetric.InventoryQueryParams{
+					Shop: 1, PartTypeID: 2, Size: 50, Ratio: 65.5, Diameter: 17.25,
+				})
+			},
+			want: "diameter=17.25&page=0&partTypeId=2&ratio=65.5&shop=1&size=50",
+		},
+		{
+			name: "inventory omits an unset tire dimension",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetInventoryWithParams(ctx, tekmetric.InventoryQueryParams{
+					Shop: 1, PartTypeID: 2, Size: 50,
+				})
+			},
+			want: "page=0&partTypeId=2&shop=1&size=50",
+		},
+		{
+			name: "appointments include deleted",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetAppointmentsWithParams(ctx, tekmetric.AppointmentQueryParams{
+					Shop: 1, Size: 50, IncludeDeleted: &yes,
+				})
+			},
+			want: "includeDeleted=true&page=0&shop=1&size=50",
+		},
+		{
+			name: "appointments exclude deleted by default",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetAppointmentsWithParams(ctx, tekmetric.AppointmentQueryParams{
+					Shop: 1, Size: 50,
+				})
+			},
+			want: "includeDeleted=false&page=0&shop=1&size=50",
+		},
+		{
+			name: "appointments updated date range",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetAppointmentsWithParams(ctx, tekmetric.AppointmentQueryParams{
+					Shop: 1, Size: 50, IncludeDeleted: &no,
+					UpdatedDateStart: "2025-01-01T00:00:00Z",
+					UpdatedDateEnd:   "2025-02-01T00:00:00Z",
+				})
+			},
+			want: "includeDeleted=false&page=0&shop=1&size=50" +
+				"&updatedDateEnd=2025-02-01T00%3A00%3A00Z" +
+				"&updatedDateStart=2025-01-01T00%3A00%3A00Z",
+		},
+		{
+			name: "jobs authorized flag",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetJobsWithParams(ctx, tekmetric.JobQueryParams{
+					Shop: 1, Size: 50, Authorized: &yes,
+					AuthorizedDateStart: "2025-01-01T00:00:00Z",
+					AuthorizedDateEnd:   "2025-02-01T00:00:00Z",
+				})
+			},
+			want: "authorized=true&authorizedDateEnd=2025-02-01T00%3A00%3A00Z" +
+				"&authorizedDateStart=2025-01-01T00%3A00%3A00Z&page=0&shop=1&size=50",
+		},
+		{
+			name: "jobs unauthorized flag",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetJobsWithParams(ctx, tekmetric.JobQueryParams{
+					Shop: 1, Size: 50, Authorized: &no,
+				})
+			},
+			want: "authorized=false&page=0&shop=1&size=50",
+		},
+		{
+			name: "repair orders posted date range",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetRepairOrdersWithParams(ctx, tekmetric.RepairOrderQueryParams{
+					Shop: 1, Size: 50,
+					PostedDateStart: "2025-01-01T00:00:00Z",
+					PostedDateEnd:   "2025-02-01T00:00:00Z",
+				})
+			},
+			want: "page=0&postedDateEnd=2025-02-01T00%3A00%3A00Z" +
+				"&postedDateStart=2025-01-01T00%3A00%3A00Z&shop=1&size=50",
+		},
+		{
+			name: "customers accounts receivable and marketing flags",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetCustomersWithParams(ctx, tekmetric.CustomerQueryParams{
+					Shop: 1, Size: 50,
+					EligibleForAccountsReceivable: &yes,
+					OkForMarketing:                &no,
+				})
+			},
+			want: "eligibleForAccountsReceivable=true&okForMarketing=false&page=0&shop=1&size=50",
+		},
+		{
+			name: "vehicles updated date range",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetVehiclesWithParams(ctx, tekmetric.VehicleQueryParams{
+					Shop: 1, Size: 50,
+					UpdatedDateStart: "2025-01-01T00:00:00Z",
+					UpdatedDateEnd:   "2025-02-01T00:00:00Z",
+				})
+			},
+			want: "page=0&shop=1&size=50&updatedDateEnd=2025-02-01T00%3A00%3A00Z" +
+				"&updatedDateStart=2025-01-01T00%3A00%3A00Z",
+		},
+		{
+			name: "employees search",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetEmployeesWithParams(ctx, tekmetric.EmployeeQueryParams{
+					Shop: 1, Size: 50, Search: "hopper",
+				})
+			},
+			want: "page=0&search=hopper&shop=1&size=50",
+		},
+		{
+			name: "shop is omitted when unset",
+			call: func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetVehiclesWithParams(ctx, tekmetric.VehicleQueryParams{Size: 50})
+			},
+			want: "page=0&size=50",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := queryFor(t, tt.call); got != tt.want {
+				t.Errorf("query =\n  %s\nwant\n  %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPageSizeIsNormalized covers the fallback the validators apply. A size of
+// zero or less is not meaningful, so it takes the default.
+func TestPageSizeIsNormalized(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+		want string
+	}{
+		{"zero takes the default", 0, "page=0&shop=1&size=100"},
+		{"negative takes the default", -5, "page=0&shop=1&size=100"},
+		{"a set size is kept", 25, "page=0&shop=1&size=25"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := queryFor(t, func(ctx context.Context, c *tekmetric.Client) {
+				_, _ = c.GetCustomersWithParams(ctx, tekmetric.CustomerQueryParams{
+					Shop: 1, Size: tt.size,
+				})
+			})
+			if got != tt.want {
+				t.Errorf("query = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/alecthomas/kong v0.9.0
+	github.com/google/go-querystring v1.1.0
 	github.com/mark3labs/mcp-go v0.7.0
 	github.com/spf13/viper v1.19.0
 	golang.org/x/time v0.14.0

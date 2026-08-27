@@ -42,8 +42,8 @@ type Vehicle struct {
 // VehicleQueryParams holds query parameters for vehicle searches
 type VehicleQueryParams struct {
 	Shop             int    `url:"shop,omitempty"`
-	Page             int    `url:"page,omitempty"`
-	Size             int    `url:"size,omitempty"`
+	Page             int    `url:"page"`
+	Size             int    `url:"size"`
 	CustomerID       int    `url:"customerId,omitempty"`       // Filter by customer
 	Search           string `url:"search,omitempty"`           // Search by year, make, model
 	UpdatedDateStart string `url:"updatedDateStart,omitempty"` // Filter by updated date
@@ -98,36 +98,12 @@ func (c *Client) GetVehiclesWithParams(ctx context.Context, params VehicleQueryP
 		return nil, err
 	}
 
-	query := url.Values{}
-	if params.Shop > 0 {
-		query.Add("shop", fmt.Sprintf("%d", params.Shop))
-	}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	if params.Size > 0 {
-		query.Add("size", fmt.Sprintf("%d", params.Size))
-	} else {
-		query.Add("size", "100")
-	}
-	if params.CustomerID > 0 {
-		query.Add("customerId", fmt.Sprintf("%d", params.CustomerID))
-	}
-	if params.Search != "" {
-		query.Add("search", params.Search)
-	}
-	if params.UpdatedDateStart != "" {
-		query.Add("updatedDateStart", params.UpdatedDateStart)
-	}
-	if params.UpdatedDateEnd != "" {
-		query.Add("updatedDateEnd", params.UpdatedDateEnd)
-	}
-	if params.Sort != "" {
-		query.Add("sort", params.Sort)
-	}
-	if params.SortDirection != "" {
-		query.Add("sortDirection", params.SortDirection)
+	encoded, err := encodeQuery(params)
+	if err != nil {
+		return nil, err
 	}
 
-	path := "/api/v1/vehicles?" + query.Encode()
+	path := "/api/v1/vehicles?" + encoded
 	var resp PaginatedResponse[Vehicle]
 	if err := c.doRequest(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err
