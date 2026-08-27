@@ -48,6 +48,28 @@ def binary_name(command):
     return command.replace("${__dirname}/", "")
 
 
+def launcher_targets(path, names):
+    """Return the archive members a launcher script runs.
+
+    A launcher starts with a shebang. Any archive member it mentions is a build
+    it may hand control to, so each one has to be present and executable.
+    """
+    try:
+        with open(path, "rb") as handle:
+            if handle.read(2) != b"#!":
+                return []
+            handle.seek(0)
+            text = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+
+    return sorted(
+        name
+        for name in names
+        if name != os.path.basename(path) and "/" + name in text
+    )
+
+
 def main():
     archive_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_ARCHIVE
 
@@ -77,8 +99,13 @@ def check(archive_path, workdir):
         manifest = json.loads(archive.read("manifest.json"))
         archive.extractall(workdir)
 
-        # extractall drops the mode bits, so read them from the archive.
+        # extractall drops the mode bits, so read them from the archive and put
+        # them back. The launcher checks that the build it runs is executable.
         modes = {i.filename: (i.external_attr >> 16) for i in archive.infolist()}
+        for member, mode in modes.items():
+            target = os.path.join(workdir, member)
+            if mode and os.path.isfile(target):
+                os.chmod(target, mode & 0o777)
 
     mcp_config = manifest["server"]["mcp_config"]
 
@@ -93,6 +120,16 @@ def check(archive_path, workdir):
             fail(f"{label} runs {name}, which is not executable")
             continue
         ok(f"{label} runs {name}")
+
+        # A command may be a launcher that picks a build by architecture. The
+        # manifest cannot name those builds, so read them out of the script.
+        for target in launcher_targets(os.path.join(workdir, name), names):
+            if target not in names:
+                fail(f"{name} runs {target}, which the archive does not hold")
+            elif not modes.get(target, 0) & stat.S_IXUSR:
+                fail(f"{name} runs {target}, which is not executable")
+            else:
+                ok(f"  {name} can run {target}")
 
     print("\nSettings the extension passes:")
     env = mcp_config.get("env", {})
@@ -120,7 +157,6 @@ def check(archive_path, workdir):
         if not os.path.exists(binary):
             fail(f"{name} is missing, so it cannot run here")
         else:
-            os.chmod(binary, 0o755)
             try:
                 result = subprocess.run(
                     [binary, "version"], capture_output=True, text=True, timeout=30

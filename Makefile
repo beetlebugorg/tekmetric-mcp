@@ -175,13 +175,17 @@ package-extension: ## Package existing binaries into .mcpb (for CI after GoRelea
 		echo "Using GoReleaser output..."; \
 		cp $(DIST_DIR)/tekmetric-mcp-universal_darwin_all/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-darwin-universal; \
 		cp $(DIST_DIR)/tekmetric-mcp_linux_amd64_v1/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-amd64; \
+		cp $(DIST_DIR)/tekmetric-mcp_linux_arm64_v8.0/tekmetric-mcp $(DIST_DIR)/extension/tekmetric-mcp-linux-arm64; \
 		cp $(DIST_DIR)/tekmetric-mcp_windows_amd64_v1/tekmetric-mcp.exe $(DIST_DIR)/extension/tekmetric-mcp-windows-amd64.exe; \
 	else \
 		echo "Using flat dist/ output..."; \
 		cp $(DIST_DIR)/$(BINARY_NAME)-darwin-universal $(DIST_DIR)/extension/ 2>/dev/null || true; \
 		cp $(DIST_DIR)/$(BINARY_NAME)-linux-amd64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
+		cp $(DIST_DIR)/$(BINARY_NAME)-linux-arm64 $(DIST_DIR)/extension/ 2>/dev/null || true; \
 		cp $(DIST_DIR)/$(BINARY_NAME)-windows-amd64.exe $(DIST_DIR)/extension/ 2>/dev/null || true; \
 	fi
+	@cp scripts/tekmetric-mcp-linux $(DIST_DIR)/extension/tekmetric-mcp-linux
+	@chmod +x $(DIST_DIR)/extension/tekmetric-mcp-linux
 	@if [ -f icon.png ]; then cp icon.png $(DIST_DIR)/extension/; fi
 	@echo "Checking the binaries manifest.json names..."
 	@missing=""; \

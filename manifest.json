@@ -26,7 +26,7 @@
           "command": "${__dirname}/tekmetric-mcp-windows-amd64.exe"
         },
         "linux": {
-          "command": "${__dirname}/tekmetric-mcp-linux-amd64"
+          "command": "${__dirname}/tekmetric-mcp-linux"
         }
       }
     }
