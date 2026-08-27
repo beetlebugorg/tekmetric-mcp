@@ -136,6 +136,19 @@ func formatJSON(data interface{}) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
+// clampLimit forces a result limit into the range [1, max].
+// A limit below 1 is not meaningful and causes a panic downstream: the tools use
+// the limit both as a slice bound and as a division operand.
+func clampLimit(limit, max int) int {
+	if limit > max {
+		return max
+	}
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
 // requireFloatArg extracts a required float64 argument and returns an error if missing
 func requireFloatArg(arguments map[string]interface{}, key string) (int, *mcp.CallToolResult) {
 	if val, ok := arguments[key].(float64); ok {
@@ -152,24 +165,26 @@ func requireStringArg(arguments map[string]interface{}, key string) (string, *mc
 	return "", mcp.NewToolResultError(fmt.Sprintf("%s parameter is required", key))
 }
 
-// parseDateArg parses a date string (YYYY-MM-DD) and returns it in ISO8601/RFC3339 format with timezone
-// The Tekmetric API expects dates in ZonedDateTime format
-// Returns empty string and false if not provided, returns error string and false if invalid format
-func parseDateArg(arguments map[string]interface{}, key string) (string, bool) {
+// parseDateArg parses an optional date argument in YYYY-MM-DD format.
+// The Tekmetric API expects a ZonedDateTime, so the result is RFC3339 at the
+// start of the day in UTC.
+//
+// It returns an empty string and a nil result when the argument is absent.
+// It returns an error result when the argument is present but malformed, so the
+// caller reports the problem instead of dropping the filter.
+func parseDateArg(arguments map[string]interface{}, key string) (string, *mcp.CallToolResult) {
 	dateStr, ok := parseStringArg(arguments, key)
 	if !ok {
-		return "", false
+		return "", nil
 	}
 
-	// Try to parse as YYYY-MM-DD
 	t, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		// If parsing fails, return error indication
-		return fmt.Sprintf("ERROR: invalid date format for %s: expected YYYY-MM-DD, got '%s'", key, dateStr), false
+		return "", mcp.NewToolResultError(fmt.Sprintf(
+			"invalid date format for %s: expected YYYY-MM-DD, got %q", key, dateStr))
 	}
 
-	// Convert to start of day in local timezone with RFC3339 format
-	return t.Format(time.RFC3339), true
+	return t.Format(time.RFC3339), nil
 }
 
 // formatRichResult creates a tool result with both formatted text and JSON data

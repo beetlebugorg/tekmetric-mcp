@@ -53,10 +53,7 @@ func (r *Registry) handleInventory(arguments map[string]interface{}) (*mcp.CallT
 	// Get limit
 	limit := 20
 	if lim, ok := parseFloatArg(arguments, "limit"); ok {
-		limit = lim
-		if limit > 100 {
-			limit = 100
-		}
+		limit = clampLimit(lim, 100)
 	}
 
 	// Fetch inventory (always fetch first page for now)

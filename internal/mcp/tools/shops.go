@@ -43,6 +43,7 @@ func (r *Registry) handleShops(arguments map[string]interface{}) (*mcp.CallToolR
 		if lim, ok := parseFloatArg(arguments, "limit"); ok {
 			limit = lim
 		}
+		limit = clampLimit(limit, 100)
 
 		matches := filterShops(shops, query)
 		if len(matches) > limit {
