@@ -3,7 +3,6 @@ package tekmetric
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 )
 
@@ -75,8 +74,8 @@ type RepairOrder struct {
 // RepairOrderQueryParams holds query parameters for repair order searches
 type RepairOrderQueryParams struct {
 	Shop                 int    `url:"shop,omitempty"`
-	Page                 int    `url:"page,omitempty"`
-	Size                 int    `url:"size,omitempty"`
+	Page                 int    `url:"page"`
+	Size                 int    `url:"size"`
 	Start                string `url:"start,omitempty"`            // Date format: YYYY-MM-DD
 	End                  string `url:"end,omitempty"`              // Date format: YYYY-MM-DD
 	PostedDateStart      string `url:"postedDateStart,omitempty"`  // Date format: YYYY-MM-DD
@@ -112,57 +111,12 @@ func (c *Client) GetRepairOrdersWithParams(ctx context.Context, params RepairOrd
 		return nil, err
 	}
 	// Build query string
-	query := url.Values{}
-	if params.Shop > 0 {
-		query.Add("shop", fmt.Sprintf("%d", params.Shop))
-	}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	if params.Size > 0 {
-		query.Add("size", fmt.Sprintf("%d", params.Size))
-	} else {
-		query.Add("size", "100")
-	}
-	if params.Start != "" {
-		query.Add("start", params.Start)
-	}
-	if params.End != "" {
-		query.Add("end", params.End)
-	}
-	if params.PostedDateStart != "" {
-		query.Add("postedDateStart", params.PostedDateStart)
-	}
-	if params.PostedDateEnd != "" {
-		query.Add("postedDateEnd", params.PostedDateEnd)
-	}
-	if params.UpdatedDateStart != "" {
-		query.Add("updatedDateStart", params.UpdatedDateStart)
-	}
-	if params.UpdatedDateEnd != "" {
-		query.Add("updatedDateEnd", params.UpdatedDateEnd)
-	}
-	if params.RepairOrderNumber > 0 {
-		query.Add("repairOrderNumber", fmt.Sprintf("%d", params.RepairOrderNumber))
-	}
-	for _, statusID := range params.RepairOrderStatusIds {
-		query.Add("repairOrderStatusId", fmt.Sprintf("%d", statusID))
-	}
-	if params.CustomerID > 0 {
-		query.Add("customerId", fmt.Sprintf("%d", params.CustomerID))
-	}
-	if params.VehicleID > 0 {
-		query.Add("vehicleId", fmt.Sprintf("%d", params.VehicleID))
-	}
-	if params.Search != "" {
-		query.Add("search", params.Search)
-	}
-	if params.Sort != "" {
-		query.Add("sort", params.Sort)
-	}
-	if params.SortDirection != "" {
-		query.Add("sortDirection", params.SortDirection)
+	encoded, err := encodeQuery(params)
+	if err != nil {
+		return nil, err
 	}
 
-	path := "/api/v1/repair-orders?" + query.Encode()
+	path := "/api/v1/repair-orders?" + encoded
 	var resp PaginatedResponse[RepairOrder]
 	if err := c.doRequest(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err

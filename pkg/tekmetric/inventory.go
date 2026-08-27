@@ -3,7 +3,6 @@ package tekmetric
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 )
 
@@ -48,8 +47,8 @@ type CannedJob struct {
 type InventoryQueryParams struct {
 	Shop          int      `url:"shop"`       // Required: Shop ID
 	PartTypeID    int      `url:"partTypeId"` // Required: 1=Part, 2=Tire, 5=Battery
-	Page          int      `url:"page,omitempty"`
-	Size          int      `url:"size,omitempty"`
+	Page          int      `url:"page"`
+	Size          int      `url:"size"`
 	PartNumbers   []string `url:"partNumbers,omitempty"`   // Exact match on part numbers
 	Width         string   `url:"width,omitempty"`         // Tire width (tires only)
 	Ratio         float64  `url:"ratio,omitempty"`         // Tire ratio (tires only)
@@ -80,38 +79,12 @@ func (c *Client) GetInventoryWithParams(ctx context.Context, params InventoryQue
 		return nil, err
 	}
 
-	query := url.Values{}
-	query.Add("shop", fmt.Sprintf("%d", params.Shop))
-	query.Add("partTypeId", fmt.Sprintf("%d", params.PartTypeID))
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	if params.Size > 0 {
-		query.Add("size", fmt.Sprintf("%d", params.Size))
-	} else {
-		query.Add("size", "100")
-	}
-	for _, partNum := range params.PartNumbers {
-		query.Add("partNumbers", partNum)
-	}
-	if params.Width != "" {
-		query.Add("width", params.Width)
-	}
-	if params.Ratio != 0 {
-		query.Add("ratio", fmt.Sprintf("%f", params.Ratio))
-	}
-	if params.Diameter != 0 {
-		query.Add("diameter", fmt.Sprintf("%f", params.Diameter))
-	}
-	if params.TireSize != "" {
-		query.Add("tireSize", params.TireSize)
-	}
-	if params.Sort != "" {
-		query.Add("sort", params.Sort)
-	}
-	if params.SortDirection != "" {
-		query.Add("sortDirection", params.SortDirection)
+	encoded, err := encodeQuery(params)
+	if err != nil {
+		return nil, err
 	}
 
-	path := "/api/v1/inventory?" + query.Encode()
+	path := "/api/v1/inventory?" + encoded
 	var resp PaginatedResponse[InventoryPart]
 	if err := c.doRequest(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err

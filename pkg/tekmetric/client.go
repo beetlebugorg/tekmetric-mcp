@@ -32,10 +32,10 @@ import (
 //   - Adds proper authentication headers
 //   - Handles JSON encoding/decoding
 type Client struct {
-	baseURL       string                 // API base URL (sandbox or production)
-	clientID      string                 // OAuth2 client ID
-	clientSecret  string                 // OAuth2 client secret
-	httpClient    *http.Client           // HTTP client with timeout
+	baseURL       string         // API base URL (sandbox or production)
+	clientID      string         // OAuth2 client ID
+	clientSecret  string         // OAuth2 client secret
+	httpClient    *http.Client   // HTTP client with timeout
 	accessToken   string         // Current OAuth2 access token
 	tokenExpiry   time.Time      // Token expiration time
 	shopIDs       []string       // Shop IDs from token scope
@@ -59,7 +59,7 @@ func NewClient(cfg *config.TekmetricConfig, logger *slog.Logger) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12, // Enforce TLS 1.2 minimum
-			MaxVersion: 0,                 // Allow highest available version
+			MaxVersion: 0,                // Allow highest available version
 		},
 	}
 

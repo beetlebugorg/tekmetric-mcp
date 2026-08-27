@@ -41,6 +41,7 @@ func (p *RepairOrderQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Validate sort field - based on Tekmetric API documentation
 	if p.Sort != "" {
@@ -83,6 +84,7 @@ func (p *CustomerQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	return nil
 }
@@ -94,6 +96,7 @@ func (p *VehicleQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Note: API documentation doesn't specify allowed sort fields for vehicles
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -103,11 +106,17 @@ func (p *VehicleQueryParams) Validate() error {
 
 // Validate validates the AppointmentQueryParams
 func (p *AppointmentQueryParams) Validate() error {
+	// The API returns deleted appointments unless the caller says otherwise.
+	if p.IncludeDeleted == nil {
+		p.IncludeDeleted = new(bool)
+	}
+
 	direction, err := normalizeSortDirection(p.SortDirection)
 	if err != nil {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Note: API documentation doesn't specify allowed sort fields for appointments
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -122,6 +131,7 @@ func (p *JobQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Validate sort field - based on Tekmetric API documentation
 	if p.Sort != "" && p.Sort != "authorizedDate" {
@@ -145,6 +155,7 @@ func (p *EmployeeQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Note: API documentation doesn't specify allowed sort fields for employees
 	// So we don't validate the Sort field - let the API reject invalid values
@@ -172,6 +183,7 @@ func (p *InventoryQueryParams) Validate() error {
 		return err
 	}
 	p.SortDirection = direction
+	p.Size = normalizePageSize(p.Size)
 
 	// Sort accepts a comma separated list.
 	validSorts := map[string]bool{"id": true, "name": true, "brand": true, "partNumber": true}
