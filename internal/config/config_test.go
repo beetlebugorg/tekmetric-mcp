@@ -13,14 +13,18 @@ import (
 func validConfig() *Config {
 	return &Config{
 		Tekmetric: TekmetricConfig{
-			BaseURL:        "https://api.example.com",
-			ClientID:       "id",
-			ClientSecret:   "secret",
-			TimeoutSeconds: 30,
-			MaxRetries:     3,
-			MaxBackoffSec:  60,
+			BaseURL:           "https://api.example.com",
+			ClientID:          "id",
+			ClientSecret:      "secret",
+			TimeoutSeconds:    30,
+			MaxRetries:        3,
+			MaxBackoffSec:     60,
+			RequestsPerSecond: 10,
 		},
-		Server:   ServerConfig{Name: "tekmetric-mcp", Version: "0.1.0"},
+		Server: ServerConfig{
+			Name: "tekmetric-mcp", Version: "0.1.0",
+			Transport: TransportStdio, Addr: ":8080",
+		},
 		Analysis: AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120},
 	}
 }
@@ -163,5 +167,53 @@ func TestValidateAnalysisLimits(t *testing.T) {
 				t.Errorf("Validate() error = %q, want it to mention %q", err, tt.wantMsg)
 			}
 		})
+	}
+}
+
+func TestValidateTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport string
+		addr      string
+		wantErr   bool
+	}{
+		{"stdio", TransportStdio, "", false},
+		{"stdio ignores the address", TransportStdio, ":8080", false},
+		{"http with an address", TransportHTTP, ":8080", false},
+		{"http with a host and port", TransportHTTP, "127.0.0.1:9000", false},
+		{"http with no address", TransportHTTP, "", true},
+		{"an unknown transport", "grpc", ":8080", true},
+		{"an empty transport", "", ":8080", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Server.Transport = tt.transport
+			cfg.Server.Addr = tt.addr
+
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Errorf("Validate() returned nil, want an error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("Validate() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestValidateRequestsPerSecond(t *testing.T) {
+	for _, rate := range []int{0, -1} {
+		cfg := validConfig()
+		cfg.Tekmetric.RequestsPerSecond = rate
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatalf("Validate() with %d returned nil, want an error", rate)
+		}
+		if !strings.Contains(err.Error(), "requests_per_second") {
+			t.Errorf("Validate() error = %q, want it to mention requests_per_second", err)
+		}
 	}
 }

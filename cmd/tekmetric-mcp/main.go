@@ -32,6 +32,8 @@ type ServeCmd struct {
 	ClientSecret string `help:"Tekmetric client secret" env:"TEKMETRIC_CLIENT_SECRET"`
 	BaseURL      string `help:"Tekmetric API base URL" env:"TEKMETRIC_BASE_URL" default:"https://sandbox.tekmetric.com"`
 	ShopID       int    `help:"Default shop ID" env:"TEKMETRIC_DEFAULT_SHOP_ID" default:"0"`
+	Transport    string `help:"Transport to serve: stdio or http" env:"TEKMETRIC_TRANSPORT" enum:"stdio,http," default:""`
+	Addr         string `help:"Listen address for the http transport" env:"TEKMETRIC_ADDR" default:""`
 }
 
 type VersionCmd struct{}
@@ -65,6 +67,12 @@ func (c *ServeCmd) Run(ctx *kong.Context, globalCLI *CLI) error {
 	}
 	if c.ShopID != 0 {
 		cfg.Tekmetric.DefaultShopID = c.ShopID
+	}
+	if c.Transport != "" {
+		cfg.Server.Transport = c.Transport
+	}
+	if c.Addr != "" {
+		cfg.Server.Addr = c.Addr
 	}
 
 	cfg.Server.Debug = globalCLI.Debug
@@ -103,6 +111,7 @@ func (c *ServeCmd) Run(ctx *kong.Context, globalCLI *CLI) error {
 		"commit", commit,
 		"base_url", cfg.Tekmetric.BaseURL,
 		"default_shop_id", cfg.Tekmetric.DefaultShopID,
+		"transport", cfg.Server.Transport,
 	)
 
 	// Start server (blocking)

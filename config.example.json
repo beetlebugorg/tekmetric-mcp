@@ -6,12 +6,15 @@
     "default_shop_id": 1,
     "timeout_seconds": 30,
     "max_retries": 3,
-    "max_backoff_sec": 60
+    "max_backoff_sec": 60,
+    "requests_per_second": 10
   },
   "server": {
     "name": "tekmetric-mcp",
     "version": "0.1.0",
-    "debug": false
+    "debug": false,
+    "transport": "stdio",
+    "addr": ":8080"
   },
   "analysis": {
     "max_pages": 50,
