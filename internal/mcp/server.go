@@ -4,7 +4,9 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"os"
 
 	"github.com/beetlebugorg/tekmetric-mcp/internal/config"
 	"github.com/beetlebugorg/tekmetric-mcp/internal/mcp/analysis"
@@ -16,10 +18,10 @@ import (
 // Server represents the MCP server for Tekmetric.
 // It wraps an MCP server instance and provides integration with the Tekmetric API.
 type Server struct {
-	server *server.MCPServer  // The underlying MCP server
-	client *tekmetric.Client  // Authenticated Tekmetric API client
-	config *config.Config     // Server configuration
-	logger *slog.Logger       // Structured logger
+	server *server.MCPServer // The underlying MCP server
+	client *tekmetric.Client // Authenticated Tekmetric API client
+	config *config.Config    // Server configuration
+	logger *slog.Logger      // Structured logger
 }
 
 // NewServer creates a new MCP server instance.
@@ -46,6 +48,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		cfg.Server.Name,
 		cfg.Server.Version,
 		server.WithLogging(),
+		// A panic in one tool returns an error for that call instead of ending
+		// the process and dropping the client connection.
+		server.WithRecovery(),
 	)
 
 	s := &Server{
@@ -68,21 +73,19 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 }
 
 // Start starts the MCP server and begins listening for requests.
-// It first authenticates with the Tekmetric API to obtain an access token,
-// then starts serving MCP requests via stdio.
 //
-// This is a blocking call that runs until the context is cancelled or
-// an error occurs. The server communicates with Claude Desktop via
-// standard input/output streams.
+// It serves MCP requests over stdio until the context is cancelled or the
+// input closes. The context reaches the tool handlers, so cancelling it stops
+// work that is already running.
 //
 // Parameters:
 //   - ctx: Context for server lifecycle management
 //
 // Returns:
-//   - error: Any error during authentication or server operation
+//   - error: Any error during server operation
 func (s *Server) Start(ctx context.Context) error {
-	// Authenticate with Tekmetric API before starting server
-	// This obtains an OAuth2 access token for API requests
+	// Authenticate before serving, so a bad credential fails at startup rather
+	// than on the first tool call.
 	if err := s.client.Authenticate(ctx); err != nil {
 		return err
 	}
@@ -91,8 +94,12 @@ func (s *Server) Start(ctx context.Context) error {
 		"name", s.config.Server.Name,
 		"version", s.config.Server.Version)
 
-	// Start serving MCP requests via stdio
-	// This blocks until the server is stopped or encounters an error
-	return server.ServeStdio(s.server)
+	// Listen takes the application context, so a shutdown signal reaches the
+	// running handlers. ServeStdio installs its own signal handler and its own
+	// context, which would ignore the one this server was given.
+	err := server.NewStdioServer(s.server).Listen(ctx, os.Stdin, os.Stdout)
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }
-

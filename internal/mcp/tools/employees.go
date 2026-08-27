@@ -43,8 +43,8 @@ func (r *Registry) RegisterEmployeeTools(s *server.MCPServer) {
 }
 
 // handleEmployees searches employees or gets a specific employee by ID
-func (r *Registry) handleEmployees(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleEmployees(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// If ID is provided, get specific employee
 	if id, ok := parseFloatArg(arguments, "id"); ok {

@@ -50,8 +50,8 @@ func (r *Registry) RegisterRepairOrderTools(s *server.MCPServer) {
 }
 
 // handleRepairOrders handles repair order search and retrieval
-func (r *Registry) handleRepairOrders(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleRepairOrders(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// If ID is provided, get specific repair order
 	if id, ok := parseFloatArg(arguments, "id"); ok {

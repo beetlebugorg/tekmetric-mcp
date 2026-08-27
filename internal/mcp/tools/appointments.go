@@ -64,8 +64,8 @@ func (r *Registry) RegisterAppointmentTools(s *server.MCPServer) {
 }
 
 // handleAppointments searches appointments or gets a specific appointment by ID
-func (r *Registry) handleAppointments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
+func (r *Registry) handleAppointments(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.GetArguments()
 
 	// If ID is provided, get specific appointment
 	if id, ok := parseFloatArg(arguments, "id"); ok {

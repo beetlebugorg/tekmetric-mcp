@@ -82,9 +82,9 @@ func (r *Registry) registerOne(mcpServer *server.MCPServer, tool AnalysisTool) {
 }
 
 // createHandler creates an MCP tool handler for a analysis tool
-func (r *Registry) createHandler(tool AnalysisTool) func(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	return func(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-		ctx := context.Background()
+func (r *Registry) createHandler(tool AnalysisTool) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		arguments := request.GetArguments()
 
 		r.logger.Debug("executing analysis tool",
 			"name", tool.Name(),
@@ -127,7 +127,7 @@ func (r *Registry) formatResult(result *AnalysisResult) (*mcp.CallToolResult, er
 		result.Metadata.ExecutionTimeMs)
 
 	// Include structured data if present
-	contents := []interface{}{
+	contents := []mcp.Content{
 		mcp.NewTextContent(responseText),
 	}
 

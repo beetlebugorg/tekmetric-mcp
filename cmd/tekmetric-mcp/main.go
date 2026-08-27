@@ -79,9 +79,11 @@ func (c *ServeCmd) Run(ctx *kong.Context, globalCLI *CLI) error {
 	appCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle signals for graceful shutdown
+	// Handle signals for graceful shutdown. Cancelling appCtx stops the
+	// transport and every handler running under it.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	go func() {
 		sig := <-sigChan
