@@ -49,9 +49,9 @@
     "base_url": {
       "type": "string",
       "title": "API Base URL",
-      "description": "Tekmetric API endpoint (production or sandbox)",
+      "description": "Tekmetric API endpoint. Use https://shop.tekmetric.com for production or https://sandbox.tekmetric.com for the sandbox.",
       "required": false,
-      "default": "https://api.tekmetric.com",
+      "default": "https://shop.tekmetric.com",
       "sensitive": false
     },
     "default_shop_id": {
@@ -94,6 +94,10 @@
     {
       "name": "inventory",
       "description": "Search inventory parts by name/number or list all"
+    },
+    {
+      "name": "vehicle_service_analysis",
+      "description": "Fetch a vehicle's full service timeline with repair orders, mileage, and spending"
     }
   ],
   "tools_generated": false,
