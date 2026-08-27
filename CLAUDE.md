@@ -23,6 +23,10 @@ Title: same rules as a commit subject.
 Description: what the change does and why. Under 15 lines. Use a list for
 several parts.
 
+Do not wrap the lines. Write each paragraph and each list item on one line, and
+let the browser wrap it. Hard wrapping is for commit messages, not for Markdown
+that a browser renders.
+
 Leave out test plans, checklists, and diff summaries.
 
 ## Prose
