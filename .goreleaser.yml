@@ -25,6 +25,16 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+# The Desktop extension names one macOS command for both architectures, so the
+# release must carry a universal binary. GoReleaser builds it itself, which
+# keeps the release runner free of a macOS dependency on lipo.
+universal_binaries:
+  - id: tekmetric-mcp-universal
+    ids:
+      - tekmetric-mcp
+    name_template: tekmetric-mcp
+    replace: false
+
 archives:
   - id: default
     formats: ["tar.gz"]
