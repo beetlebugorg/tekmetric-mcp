@@ -132,20 +132,6 @@ watch: ## Watch for changes and rebuild (requires entr)
 		echo "entr not installed. Install with: brew install entr"; \
 	fi
 
-# Docker targets
-docker-build: ## Build Docker image
-	@echo "Building Docker image..."
-	docker build -t tekmetric-mcp:$(VERSION) -t tekmetric-mcp:latest .
-
-docker-run: ## Run Docker container
-	@echo "Running Docker container..."
-	docker run --rm -it \
-		-e TEKMETRIC_CLIENT_ID \
-		-e TEKMETRIC_CLIENT_SECRET \
-		-e TEKMETRIC_BASE_URL \
-		-e TEKMETRIC_DEFAULT_SHOP_ID \
-		tekmetric-mcp:latest
-
 # Release targets
 release-dry: ## Dry run of release process
 	@echo "Dry run release for version $(VERSION)..."
