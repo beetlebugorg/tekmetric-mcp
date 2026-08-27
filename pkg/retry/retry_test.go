@@ -1,7 +1,9 @@
 package retry
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -22,7 +24,7 @@ func newFast(maxRetries int) *Retryer {
 
 func TestDoSucceedsOnFirstAttempt(t *testing.T) {
 	calls := 0
-	err := newFast(3).Do(func() error {
+	err := newFast(3).Do(t.Context(), func() error {
 		calls++
 		return nil
 	})
@@ -37,7 +39,7 @@ func TestDoSucceedsOnFirstAttempt(t *testing.T) {
 
 func TestDoRetriesTemporaryErrorUntilSuccess(t *testing.T) {
 	calls := 0
-	err := newFast(3).Do(func() error {
+	err := newFast(3).Do(t.Context(), func() error {
 		calls++
 		if calls < 3 {
 			return &tempErr{msg: "temporary error with status 503", temp: true}
@@ -67,7 +69,7 @@ func TestDoStopsAfterMaxRetries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0
-			err := newFast(tt.maxRetries).Do(func() error {
+			err := newFast(tt.maxRetries).Do(t.Context(), func() error {
 				calls++
 				return &tempErr{msg: "temporary error with status 500", temp: true}
 			})
@@ -86,7 +88,7 @@ func TestDoDoesNotRetryPermanentError(t *testing.T) {
 	calls := 0
 	want := errors.New("API request failed with status 404")
 
-	err := newFast(3).Do(func() error {
+	err := newFast(3).Do(t.Context(), func() error {
 		calls++
 		return want
 	})
@@ -99,30 +101,9 @@ func TestDoDoesNotRetryPermanentError(t *testing.T) {
 	}
 }
 
-// TestDoTemporaryFlagAloneDoesNotRetry records a defect. Do checks the
-// Temporary() method, then also requires the error text to match a substring
-// list. An error that reports Temporary() true but carries an unrecognized
-// message is not retried.
-//
-// Delete this test when Do classifies errors by type alone.
-func TestDoTemporaryFlagAloneDoesNotRetry(t *testing.T) {
-	calls := 0
-	err := newFast(3).Do(func() error {
-		calls++
-		return &tempErr{msg: "boom", temp: true}
-	})
-
-	if err == nil {
-		t.Fatal("Do() returned nil, want an error")
-	}
-	if calls != 1 {
-		t.Errorf("calls = %d, want 1; Do now honors Temporary() alone, so update this test", calls)
-	}
-}
-
 func TestDoTemporaryFalseStopsImmediately(t *testing.T) {
 	calls := 0
-	err := newFast(3).Do(func() error {
+	err := newFast(3).Do(t.Context(), func() error {
 		calls++
 		// The message matches the substring list, but Temporary() is false.
 		return &tempErr{msg: "connection timeout", temp: false}
@@ -133,42 +114,6 @@ func TestDoTemporaryFalseStopsImmediately(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want 1", calls)
-	}
-}
-
-func TestIsLikelyTemporary(t *testing.T) {
-	tests := []struct {
-		msg  string
-		want bool
-	}{
-		{"temporary error with status 503", true},
-		{"API request failed with status 429", true},
-		{"too many requests", true},
-		{"gateway timeout", true},
-		{"connection refused", true},
-		{"connection reset by peer", true},
-		{"service unavailable", true},
-		{"request failed: dial tcp: i/o timeout", true},
-		{"API request failed with status 404", false},
-		{"API request failed with status 401", false},
-		{"failed to marshal request body", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.msg, func(t *testing.T) {
-			if got := isLikelyTemporary(tt.msg); got != tt.want {
-				t.Errorf("isLikelyTemporary(%q) = %v, want %v", tt.msg, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestIsLikelyTemporaryMatchesUnrelatedText records that the check is a
-// substring scan over the message, so unrelated wording can trigger a retry.
-func TestIsLikelyTemporaryMatchesUnrelatedText(t *testing.T) {
-	if !isLikelyTemporary("failed to decode response: unexpected timeout field") {
-		t.Error("expected the substring scan to match; the classifier changed, so update this test")
 	}
 }
 
@@ -214,20 +159,108 @@ func TestCalculateBackoffZeroMax(t *testing.T) {
 	}
 }
 
-// TestDoIgnoresCancellation records that Do has no context parameter, so a
-// caller cannot stop the backoff sleep. The test measures that the sleep runs.
-//
-// Delete this test when Do accepts a context.
-func TestDoIgnoresCancellation(t *testing.T) {
-	r := New(1, 1)
+// TestDoRetriesOnTheTemporaryFlagAlone confirms the classifier reads the type,
+// not the message. The earlier code also required the text to match a substring
+// list, so an unrecognized message stopped the retry.
+func TestDoRetriesOnTheTemporaryFlagAlone(t *testing.T) {
+	calls := 0
+	err := newFast(3).Do(t.Context(), func() error {
+		calls++
+		return &tempErr{msg: "boom", temp: true}
+	})
+
+	if err == nil {
+		t.Fatal("Do() returned nil, want an error")
+	}
+	if calls != 4 {
+		t.Errorf("calls = %d, want 4", calls)
+	}
+}
+
+// TestDoRetriesAWrappedTemporaryError confirms the classifier looks through a
+// wrapper, so a caller may add context to the error.
+func TestDoRetriesAWrappedTemporaryError(t *testing.T) {
+	calls := 0
+	err := newFast(2).Do(t.Context(), func() error {
+		calls++
+		return fmt.Errorf("fetching page 2: %w", &tempErr{msg: "boom", temp: true})
+	})
+
+	if err == nil {
+		t.Fatal("Do() returned nil, want an error")
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want 3", calls)
+	}
+}
+
+func TestIsTemporary(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("boom"), false},
+		{"temporary", &tempErr{msg: "boom", temp: true}, true},
+		{"not temporary", &tempErr{msg: "boom", temp: false}, false},
+		{"wrapped temporary", fmt.Errorf("context: %w", &tempErr{msg: "boom", temp: true}), true},
+		{"wrapped permanent", fmt.Errorf("context: %w", errors.New("boom")), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsTemporary(tt.err); got != tt.want {
+				t.Errorf("IsTemporary(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDoStopsWhenTheContextIsCancelled confirms a cancelled context ends the
+// wait instead of sleeping through it.
+func TestDoStopsWhenTheContextIsCancelled(t *testing.T) {
+	// A 30 second cap makes the first wait far longer than the test allows.
+	r := New(5, 30)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
 
 	start := time.Now()
-	_ = r.Do(func() error {
-		return &tempErr{msg: "temporary error with status 500", temp: true}
+	err := r.Do(ctx, func() error {
+		calls++
+		cancel() // Cancel while the retryer is about to wait.
+		return &tempErr{msg: "boom", temp: true}
 	})
 	elapsed := time.Since(start)
 
-	if elapsed < 900*time.Millisecond {
-		t.Errorf("elapsed = %v, want at least 900ms; Do no longer sleeps, so update this test", elapsed)
+	if err == nil {
+		t.Fatal("Do() returned nil, want an error")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("elapsed = %v, want under 500ms", elapsed)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
+	}
+}
+
+// TestDoDoesNotCallFnWithACancelledContext confirms the loop checks the context
+// before the first attempt.
+func TestDoDoesNotCallFnWithACancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	calls := 0
+	err := newFast(3).Do(ctx, func() error {
+		calls++
+		return nil
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	if calls != 0 {
+		t.Errorf("calls = %d, want 0", calls)
 	}
 }

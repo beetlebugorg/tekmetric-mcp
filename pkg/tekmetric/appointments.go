@@ -57,7 +57,7 @@ type AppointmentQueryParams struct {
 
 // GetAppointments returns a paginated list of appointments (excludes deleted by default)
 func (c *Client) GetAppointments(ctx context.Context, shopID int, page int, size int) (*PaginatedResponse[Appointment], error) {
-	if err := c.isAuthorizedShop(shopID); err != nil {
+	if err := c.authorizeShop(ctx, shopID); err != nil {
 		return nil, err
 	}
 	includeDeleted := false
@@ -81,7 +81,7 @@ func (c *Client) GetAppointment(ctx context.Context, id int) (*Appointment, erro
 
 // GetAppointmentsWithParams returns appointments with advanced filtering
 func (c *Client) GetAppointmentsWithParams(ctx context.Context, params AppointmentQueryParams) (*PaginatedResponse[Appointment], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {

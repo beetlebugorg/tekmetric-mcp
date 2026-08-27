@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -238,25 +239,23 @@ func TestUnauthorizedShopSkipsTheRequest(t *testing.T) {
 	}
 }
 
-// TestShopAuthorizationNeedsPriorAuthentication records a defect. The shop
-// check reads the scope that Authenticate populates, but it runs before
-// ensureAuthenticated. A client that has not authenticated rejects every shop.
-//
-// Update this test when the shop check runs after authentication.
-func TestShopAuthorizationNeedsPriorAuthentication(t *testing.T) {
+// TestShopCheckAuthenticatesFirst confirms the shop check authenticates before
+// it reads the token scope. An earlier version checked first, so a client that
+// had not authenticated rejected every shop.
+func TestShopCheckAuthenticatesFirst(t *testing.T) {
 	api := tekmetrictest.New(t)
 	client := api.Client(t)
 
-	// Shop 1 is inside the token scope, but the client has not authenticated.
-	_, err := client.GetCustomers(t.Context(), 1, 0, 10)
-	if err == nil {
-		t.Fatal("GetCustomers() returned nil; the ordering is fixed, so update this test")
+	// Shop 1 is inside the token scope, and the client has not authenticated.
+	if _, err := client.GetCustomers(t.Context(), 1, 0, 10); err != nil {
+		t.Fatalf("GetCustomers() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "not in token scope") {
-		t.Errorf("error = %q, want it to mention the token scope", err)
+
+	if api.TokenCount() != 1 {
+		t.Errorf("token requests = %d, want 1", api.TokenCount())
 	}
-	if len(api.Requests()) != 0 {
-		t.Errorf("requests = %d, want 0", len(api.Requests()))
+	if api.CallCount("/api/v1/customers") != 1 {
+		t.Errorf("customer requests = %d, want 1", api.CallCount("/api/v1/customers"))
 	}
 }
 
@@ -330,9 +329,9 @@ func TestDoRequestDoesNotRetryClientErrors(t *testing.T) {
 		status int
 	}{
 		{"bad request", http.StatusBadRequest},
-		{"unauthorized", http.StatusUnauthorized},
 		{"forbidden", http.StatusForbidden},
 		{"not found", http.StatusNotFound},
+		{"conflict", http.StatusConflict},
 	}
 
 	for _, tt := range tests {
@@ -460,5 +459,176 @@ func TestPaginationEnvelope(t *testing.T) {
 	}
 	if !last.Last {
 		t.Error("Last = false on the final page, want true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
+
+// TestConcurrentRequestsShareOneToken confirms a burst of callers that find no
+// token produces one token fetch, not one per caller.
+func TestConcurrentRequestsShareOneToken(t *testing.T) {
+	api := tekmetrictest.New(t)
+	client := api.Client(t)
+
+	const callers = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := client.GetShops(t.Context()); err != nil {
+				errs <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("GetShops() error = %v", err)
+	}
+
+	if api.TokenCount() != 1 {
+		t.Errorf("token requests = %d, want 1", api.TokenCount())
+	}
+	if api.CallCount(shopsPath) != callers {
+		t.Errorf("shop requests = %d, want %d", api.CallCount(shopsPath), callers)
+	}
+}
+
+// TestConcurrentRequestsWithAnExpiredToken drives the refresh path from many
+// goroutines at once. Run with -race, it covers the token fields.
+func TestConcurrentRequestsWithAnExpiredToken(t *testing.T) {
+	api := tekmetrictest.New(t)
+	api.Scope = []string{"1", "2", "3"}
+	client := api.AuthedClient(t)
+
+	client.SetTokenExpiry(time.Now().Add(-time.Minute))
+
+	const callers = 25
+	var wg sync.WaitGroup
+
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+
+			// Mix the calls that read the token with the calls that read the
+			// shop scope.
+			if n%2 == 0 {
+				_, _ = client.GetShops(t.Context())
+				return
+			}
+			_, _ = client.GetCustomers(t.Context(), 1+n%3, 0, 10)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// One token for the setup and one shared refresh for the whole burst.
+	if api.TokenCount() != 2 {
+		t.Errorf("token requests = %d, want 2", api.TokenCount())
+	}
+}
+
+// TestConcurrentAuthenticateIsSafe drives the exported entry point, which always
+// contacts the token endpoint.
+func TestConcurrentAuthenticateIsSafe(t *testing.T) {
+	api := tekmetrictest.New(t)
+	client := api.Client(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := client.Authenticate(t.Context()); err != nil {
+				t.Errorf("Authenticate() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if client.AccessToken() != tekmetrictest.AccessToken {
+		t.Errorf("AccessToken() = %q, want %q", client.AccessToken(), tekmetrictest.AccessToken)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Token refresh on a rejected request
+// ---------------------------------------------------------------------------
+
+// TestUnauthorizedRefreshesTheTokenOnce confirms the client refreshes and tries
+// again when the API rejects a token that looked valid.
+func TestUnauthorizedRefreshesTheTokenOnce(t *testing.T) {
+	api := tekmetrictest.New(t)
+	api.FailOnce(shopsPath, http.StatusUnauthorized)
+
+	client := api.AuthedClient(t)
+	if api.TokenCount() != 1 {
+		t.Fatalf("setup token requests = %d, want 1", api.TokenCount())
+	}
+
+	if _, err := client.GetShops(t.Context()); err != nil {
+		t.Fatalf("GetShops() error = %v", err)
+	}
+
+	if api.TokenCount() != 2 {
+		t.Errorf("token requests = %d, want 2", api.TokenCount())
+	}
+	if api.CallCount(shopsPath) != 2 {
+		t.Errorf("shop requests = %d, want 2", api.CallCount(shopsPath))
+	}
+}
+
+// TestUnauthorizedRefreshesOnlyOnce confirms a token the API keeps rejecting
+// does not loop.
+func TestUnauthorizedRefreshesOnlyOnce(t *testing.T) {
+	api := tekmetrictest.New(t)
+	api.FailAlways(shopsPath, http.StatusUnauthorized)
+
+	client := api.AuthedClient(t)
+
+	if _, err := client.GetShops(t.Context()); err == nil {
+		t.Fatal("GetShops() returned nil, want an error")
+	}
+
+	// One token for the setup and one for the single refresh.
+	if api.TokenCount() != 2 {
+		t.Errorf("token requests = %d, want 2", api.TokenCount())
+	}
+}
+
+// TestCancellationStopsTheRetryWait confirms a cancelled request does not sleep
+// through the backoff.
+func TestCancellationStopsTheRetryWait(t *testing.T) {
+	api := tekmetrictest.New(t)
+	api.FailAlways(shopsPath, http.StatusServiceUnavailable)
+
+	cfg := api.Config()
+	cfg.MaxRetries = 5
+	cfg.MaxBackoffSec = 30
+	client := tekmetric.NewClient(cfg, tekmetrictest.Logger())
+
+	if err := client.Authenticate(t.Context()); err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, err := client.GetShops(ctx); err == nil {
+		t.Fatal("GetShops() returned nil, want an error")
+	}
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Errorf("elapsed = %v, want under 2s", elapsed)
 	}
 }

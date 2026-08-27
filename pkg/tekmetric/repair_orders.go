@@ -104,7 +104,7 @@ func (c *Client) GetRepairOrders(ctx context.Context, shopID int, page int, size
 
 // GetRepairOrdersWithParams returns repair orders with advanced filtering
 func (c *Client) GetRepairOrdersWithParams(ctx context.Context, params RepairOrderQueryParams) (*PaginatedResponse[RepairOrder], error) {
-	if err := c.isAuthorizedShop(params.Shop); err != nil {
+	if err := c.authorizeShop(ctx, params.Shop); err != nil {
 		return nil, err
 	}
 	if err := params.Validate(); err != nil {
