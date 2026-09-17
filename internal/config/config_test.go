@@ -175,15 +175,16 @@ func TestValidateTransport(t *testing.T) {
 		name      string
 		transport string
 		addr      string
+		token     string
 		wantErr   bool
 	}{
-		{"stdio", TransportStdio, "", false},
-		{"stdio ignores the address", TransportStdio, ":8080", false},
-		{"http with an address", TransportHTTP, ":8080", false},
-		{"http with a host and port", TransportHTTP, "127.0.0.1:9000", false},
-		{"http with no address", TransportHTTP, "", true},
-		{"an unknown transport", "grpc", ":8080", true},
-		{"an empty transport", "", ":8080", true},
+		{"stdio", TransportStdio, "", "", false},
+		{"stdio ignores the address", TransportStdio, ":8080", "", false},
+		{"http with an address and a token", TransportHTTP, ":8080", "secret", false},
+		{"http with a host and port", TransportHTTP, "127.0.0.1:9000", "secret", false},
+		{"http with no address", TransportHTTP, "", "secret", true},
+		{"an unknown transport", "grpc", ":8080", "", true},
+		{"an empty transport", "", ":8080", "", true},
 	}
 
 	for _, tt := range tests {
@@ -191,6 +192,7 @@ func TestValidateTransport(t *testing.T) {
 			cfg := validConfig()
 			cfg.Server.Transport = tt.transport
 			cfg.Server.Addr = tt.addr
+			cfg.Server.Token = tt.token
 
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
@@ -198,6 +200,42 @@ func TestValidateTransport(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("Validate() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// TestValidateHTTPToken confirms the http transport requires a token on every
+// address. Every request uses the shop's Tekmetric credentials.
+func TestValidateHTTPToken(t *testing.T) {
+	addrs := []string{
+		":8080",
+		"0.0.0.0:8080",
+		"[::]:8080",
+		"192.0.2.10:8080",
+		"mcp.example.com:8080",
+		"127.0.0.1:8080",
+		"[::1]:8080",
+		"localhost:8080",
+	}
+
+	for _, addr := range addrs {
+		t.Run(addr, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Server.Transport = TransportHTTP
+			cfg.Server.Addr = addr
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("Validate() with no token returned nil, want an error")
+			}
+			if !strings.Contains(err.Error(), "server.token") {
+				t.Errorf("Validate() error = %q, want it to mention server.token", err)
+			}
+
+			cfg.Server.Token = "secret"
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() with a token error = %v, want nil", err)
 			}
 		})
 	}

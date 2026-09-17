@@ -34,6 +34,7 @@ type ServeCmd struct {
 	ShopID       int    `help:"Default shop ID" env:"TEKMETRIC_DEFAULT_SHOP_ID" default:"0"`
 	Transport    string `help:"Transport to serve: stdio or http" env:"TEKMETRIC_TRANSPORT" enum:"stdio,http," default:""`
 	Addr         string `help:"Listen address for the http transport" env:"TEKMETRIC_ADDR" default:""`
+	HTTPToken    string `help:"Bearer token the http transport requires" name:"http-token" env:"TEKMETRIC_HTTP_TOKEN"`
 }
 
 type VersionCmd struct{}
@@ -73,6 +74,9 @@ func (c *ServeCmd) Run(ctx *kong.Context, globalCLI *CLI) error {
 	}
 	if c.Addr != "" {
 		cfg.Server.Addr = c.Addr
+	}
+	if c.HTTPToken != "" {
+		cfg.Server.Token = c.HTTPToken
 	}
 
 	cfg.Server.Debug = globalCLI.Debug

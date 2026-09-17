@@ -145,6 +145,46 @@ Enable debug logging.
 - **Default**: false
 - **Values**: `true`, `false`
 
+#### `TEKMETRIC_TRANSPORT`
+
+The transport the server uses to talk to a client.
+
+- **Type**: string
+- **Required**: No
+- **Default**: `stdio`
+- **Values**:
+  - `stdio` - One client over standard input and output. Claude Desktop uses this transport.
+  - `http` - Many clients over streamable HTTP at the `/mcp` path.
+
+#### `TEKMETRIC_ADDR`
+
+The listen address for the `http` transport.
+
+- **Type**: string
+- **Required**: No
+- **Default**: `:8080` (all interfaces)
+- **Example**: `127.0.0.1:8080`
+
+#### `TEKMETRIC_HTTP_TOKEN`
+
+The bearer token that each `http` request must send in the `Authorization` header.
+
+- **Type**: string
+- **Required**: Yes, for the `http` transport
+- **Default**: none
+- **Example request header**: `Authorization: Bearer <token>`
+- **Security**: Never commit this value
+
+The server uses the shop's Tekmetric credentials for every tool call. A caller that reaches the port can read customer names, emails, phone numbers, and addresses. For this reason, the `http` transport does not start without a token.
+
+Make a token with high entropy:
+
+```bash
+export TEKMETRIC_HTTP_TOKEN="$(openssl rand -hex 32)"
+```
+
+The server does not serve TLS. Put a TLS proxy in front of the server when clients connect over a network, so that the token does not cross the network in clear text.
+
 ## Claude Desktop Configuration
 
 Add to `claude_desktop_config.json`:
