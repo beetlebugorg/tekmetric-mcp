@@ -4,10 +4,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/beetlebugorg/tekmetric-mcp/internal/config"
@@ -19,6 +21,9 @@ import (
 
 // shutdownTimeout bounds how long the HTTP listener waits for open requests.
 const shutdownTimeout = 15 * time.Second
+
+// endpointPath is the path the http transport serves MCP requests on.
+const endpointPath = "/mcp"
 
 // Server represents the MCP server for Tekmetric.
 // It wraps an MCP server instance and provides integration with the Tekmetric API.
@@ -127,14 +132,29 @@ func (s *Server) serveStdio(ctx context.Context) error {
 
 // serveHTTP serves many clients over streamable HTTP without session state.
 //
-// The client does not authenticate here. The first tool call obtains a token,
-// and the client caches it for later calls.
+// The Tekmetric client does not authenticate here. The first tool call obtains
+// an API token, and the client caches it for later calls. Each request must
+// have server.token as a bearer token.
 func (s *Server) serveHTTP(ctx context.Context) error {
+	// Validate also checks the token. This check stops a caller that skips
+	// Validate from starting a listener with no token check.
+	if s.config.Server.Token == "" {
+		return errors.New("server.token is required for the http transport")
+	}
+
+	mux := http.NewServeMux()
+	listener := &http.Server{Addr: s.config.Server.Addr, Handler: mux}
+
 	httpServer := server.NewStreamableHTTPServer(s.server,
 		// Stateless mode issues no session ID and keeps no per-client state,
 		// so a load balancer may send each request to any replica.
 		server.WithStateLess(true),
+		server.WithEndpointPath(endpointPath),
+		// The server owns the listener so the token check runs before MCP.
+		server.WithStreamableHTTPServer(listener),
 	)
+
+	mux.Handle(endpointPath, requireToken(s.config.Server.Token, httpServer))
 
 	s.logger.Info("MCP server starting",
 		"name", s.config.Server.Name,
@@ -165,4 +185,25 @@ func (s *Server) serveHTTP(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// requireToken returns 401 for a request without the bearer token. Every tool
+// call uses the shop's Tekmetric credentials. Without this check, any caller
+// that can connect to the port can read customer records.
+func requireToken(token string, next http.Handler) http.Handler {
+	want := []byte(token)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scheme, got, found := strings.Cut(r.Header.Get("Authorization"), " ")
+
+		// ConstantTimeCompare keeps the response time from revealing how much
+		// of a guess matches the token.
+		if !found || !strings.EqualFold(scheme, "Bearer") ||
+			subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="tekmetric-mcp"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

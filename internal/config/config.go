@@ -58,6 +58,10 @@ type ServerConfig struct {
 	Debug     bool   `mapstructure:"debug"`     // Enable debug logging
 	Transport string `mapstructure:"transport"` // stdio or http
 	Addr      string `mapstructure:"addr"`      // Listen address for the http transport
+	// Token is the bearer token every http request must have. The server
+	// uses the shop's Tekmetric credentials for every tool call, so the http
+	// transport requires a token on every address.
+	Token string `mapstructure:"token"`
 }
 
 // AnalysisConfig holds configuration for analysis tools.
@@ -113,6 +117,7 @@ func Load() (*Config, error) {
 	v.BindEnv("server.debug", "TEKMETRIC_DEBUG")
 	v.BindEnv("server.transport", "TEKMETRIC_TRANSPORT")
 	v.BindEnv("server.addr", "TEKMETRIC_ADDR")
+	v.BindEnv("server.token", "TEKMETRIC_HTTP_TOKEN")
 
 	// Configure config file search
 	v.SetConfigName("config")
@@ -202,6 +207,9 @@ func (c *Config) Validate() error {
 	case TransportHTTP:
 		if c.Server.Addr == "" {
 			return fmt.Errorf("server.addr is required for the http transport")
+		}
+		if c.Server.Token == "" {
+			return fmt.Errorf("server.token is required for the http transport: set TEKMETRIC_HTTP_TOKEN")
 		}
 	default:
 		return fmt.Errorf("invalid server.transport %q: must be %s or %s",
