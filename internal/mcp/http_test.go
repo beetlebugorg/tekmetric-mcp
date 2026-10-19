@@ -30,6 +30,9 @@ func freePort(t *testing.T) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
+// testToken is the bearer token the test servers require.
+const testToken = "test-token"
+
 // startHTTPServer runs the server on the http transport and returns its URL.
 func startHTTPServer(t *testing.T, api *tekmetrictest.API) string {
 	t.Helper()
@@ -44,6 +47,7 @@ func startHTTPServer(t *testing.T, api *tekmetrictest.API) string {
 			Version:   "test",
 			Transport: config.TransportHTTP,
 			Addr:      addr,
+			Token:     testToken,
 		},
 		Analysis: config.AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120},
 	}
@@ -105,6 +109,7 @@ func post(t *testing.T, url string, message any) (map[string]any, http.Header) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+testToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -301,5 +306,124 @@ func TestHTTPReportsAToolError(t *testing.T) {
 	}
 	if result["isError"] != true {
 		t.Errorf("isError = %v, want true", result["isError"])
+	}
+}
+
+// postWithAuth sends one JSON-RPC message with an Authorization header and
+// returns the response. An empty header value sends no header.
+func postWithAuth(t *testing.T, url, authorization string, message any) *http.Response {
+	t.Helper()
+
+	body, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// TestHTTPRejectsABadToken confirms a caller without the token reaches no tool
+// and causes no call to the Tekmetric API.
+func TestHTTPRejectsABadToken(t *testing.T) {
+	api := tekmetrictest.New(t)
+	url := startHTTPServer(t, api)
+
+	tests := []struct {
+		name          string
+		authorization string
+	}{
+		{"no header", ""},
+		{"a wrong token", "Bearer wrong-token"},
+		{"a prefix of the token", "Bearer test"},
+		{"no scheme", testToken},
+		{"another scheme", "Basic " + testToken},
+		{"an empty token", "Bearer "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := postWithAuth(t, url, tt.authorization, callMessage(1, "shops", map[string]any{}))
+
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+			}
+			if got := resp.Header.Get("WWW-Authenticate"); !strings.HasPrefix(got, "Bearer") {
+				t.Errorf("WWW-Authenticate = %q, want a Bearer challenge", got)
+			}
+		})
+	}
+
+	if api.TokenCount() != 0 {
+		t.Errorf("Tekmetric token requests = %d, want 0", api.TokenCount())
+	}
+}
+
+// TestHTTPAcceptsTheToken confirms a caller with the token reaches the tools.
+// The scheme name is case-insensitive.
+func TestHTTPAcceptsTheToken(t *testing.T) {
+	api := tekmetrictest.New(t)
+	api.Shops = []tekmetric.Shop{{ID: 1, Name: "Main Street Auto"}}
+	url := startHTTPServer(t, api)
+
+	for _, scheme := range []string{"Bearer", "bearer"} {
+		t.Run(scheme, func(t *testing.T) {
+			resp := postWithAuth(t, url, scheme+" "+testToken, callMessage(1, "shops", map[string]any{}))
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			raw, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
+			if !strings.Contains(string(raw), "Main Street Auto") {
+				t.Errorf("the response does not name the shop: %s", raw)
+			}
+		})
+	}
+}
+
+// TestHTTPStartFailsWithoutAToken confirms Start returns an error when the
+// token is empty and the caller skips Validate.
+func TestHTTPStartFailsWithoutAToken(t *testing.T) {
+	api := tekmetrictest.New(t)
+
+	cfg := &config.Config{
+		Tekmetric: *api.Config(),
+		Server: config.ServerConfig{
+			Name:      "tekmetric-mcp",
+			Version:   "test",
+			Transport: config.TransportHTTP,
+			Addr:      fmt.Sprintf("127.0.0.1:%d", freePort(t)),
+		},
+		Analysis: config.AnalysisConfig{MaxPages: 50, MaxRecords: 5000, TimeoutSeconds: 120},
+	}
+
+	srv, err := NewServer(cfg, tekmetrictest.Logger())
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = srv.Start(ctx)
+	if err == nil || !strings.Contains(err.Error(), "server.token") {
+		t.Errorf("Start() error = %v, want it to mention server.token", err)
 	}
 }
